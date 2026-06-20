@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Lambda詳細設計書（実務版）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+table { border-collapse: collapse; width: 100%; margin-top:10px; }
+td, th { border:1px solid #ccc; padding:8px; }
+th { background:#eef3f8; }
+</style>
+</head>
+
+<body>
+
+<h1>Lambda詳細設計書（実務版）</h1>
+
+<div class="box">
+本設計書は、釣行AIアプリにおけるAWS Lambda関数単位の責務・入出力・処理フローを定義する。
+</div>
+
+<hr>
+
+<h2>1. 設計方針</h2>
+
+<ul>
+<li>1 Lambda = 1責務（単一責任原則）</li>
+<li>API系とバッチ系を分離</li>
+<li>DynamoDBアクセスは原則Lambda経由</li>
+<li>リアルタイム処理は禁止（バッチ中心）</li>
+</ul>
+
+---
+
+<h2>2. Lambda一覧（API系）</h2>
+
+<table>
+<tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
+<tr><td>getRecommendationsHandler</td><td>TOP3取得</td><td>API Gateway</td></tr>
+<tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td></tr>
+<tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td></tr>
+<tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td></tr>
+<tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td></tr>
+</table>
+
+---
+
+<h2>3. Lambda一覧（バッチ系）</h2>
+
+<table>
+<tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
+<tr><td>fetchWeatherBatch</td><td>天気取得</td><td>EventBridge</td></tr>
+<tr><td>fetchTideBatch</td><td>潮汐取得</td><td>EventBridge</td></tr>
+<tr><td>fetchFishingReportsBatch</td><td>釣果収集</td><td>EventBridge</td></tr>
+<tr><td>generateSpotScoreBatch</td><td>AIスコア生成</td><td>EventBridge</td></tr>
+<tr><td>updateRecommendationBatch</td><td>推薦更新</td><td>EventBridge</td></tr>
+</table>
+
+---
+
+<h2>4. 個別設計</h2>
+
+<h3>getRecommendationsHandler</h3>
+
+<div class="box">
+目的：ユーザーにTOP3スポットを返却
+</div>
+
+<h4>入力</h4>
+<pre>
+{
+  "userId": "xxx",
+  "lat": 35.6,
+  "lng": 139.7
+}
+</pre>
+
+<h4>処理フロー</h4>
+<pre>
+1. Recommendations取得
+2. 距離補正
+3. スコア順ソート
+4. TOP3抽出
+5. レスポンス返却
+</pre>
+
+<h4>出力</h4>
+<pre>
+{
+  "top3": [
+    {
+      "spotId": "A123",
+      "score": 87,
+      "fishTypes": ["アジ"],
+      "reason": "潮流が安定",
+      "distance": 3.2,
+      "cost": 500
+    }
+  ]
+}
+</pre>
+
+---
+
+<h3>generateSpotScoreBatch</h3>
+
+<div class="box">
+目的：AIによる釣行スコア生成
+</div>
+
+<h4>処理</h4>
+<pre>
+Spots取得
+ + Weatherデータ
+ + Tideデータ
+ + FishingReports
+ → スコア計算
+ → DynamoDB更新
+</pre>
+
+<h4>スコアロジック</h4>
+<pre>
+score =
+  fish_probability * 0.4
++ weather_score * 0.2
++ tide_score * 0.2
+- distance_penalty * 0.1
+- cost_penalty * 0.1
+</pre>
+
+---
+
+<h2>5. 非機能要件</h2>
+
+<ul>
+<li>API応答：1〜2秒以内</li>
+<li>バッチ：1時間単位実行</li>
+<li>エラーハンドリング：リトライ設計</li>
+</ul>
+
+---
+
+<h2>6. セキュリティ</h2>
+
+<ul>
+<li>IAM最小権限</li>
+<li>Cognito認証必須</li>
+<li>API Gateway認証制御</li>
+</ul>
+
+---
+
+<h2>7. まとめ</h2>
+
+<div class="box">
+Lambdaは「API処理」と「バッチ処理」に完全分離し、  
+スケーラブルかつ低コストな構成とする。
+</div>
+
+</body>
+</html>

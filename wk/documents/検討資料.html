@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>コスト・技術選定書（実務版）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+</style>
+</head>
+
+<body>
+
+<h1>コスト・技術選定書（実務版 v2）</h1>
+
+<div class="box">
+本資料は、釣行AIアプリにおける技術選定理由およびコスト前提を整理し、  
+設計判断の透明性を担保するためのものである。
+</div>
+
+<hr>
+
+<h2>1. コスト前提（前提条件）</h2>
+
+<ul>
+<li>個人開発（ユーザー数：1〜2人）</li>
+<li>トラフィック：低頻度アクセス（1日数十リクエスト程度）</li>
+<li>リアルタイム処理なし（バッチ中心）</li>
+<li>AI呼び出しは1日数回想定</li>
+</ul>
+
+<div class="box">
+目標コスト：月 0〜1,500円以内
+</div>
+
+---
+
+<h2>2. サービス別コスト見積（MVP）</h2>
+
+<h3>■ S3（フロント）</h3>
+
+<ul>
+<li>ストレージ：ほぼ無料（数百MB想定）</li>
+<li>リクエスト：月数百回レベル</li>
+</ul>
+
+<div class="box">
+想定コスト：0〜100円/月
+</div>
+
+---
+
+<h3>■ CloudFront</h3>
+
+<ul>
+<li>転送量：低（個人利用）</li>
+<li>キャッシュ中心</li>
+</ul>
+
+<div class="box">
+想定コスト：0〜300円/月
+</div>
+
+---
+
+<h3>■ Lambda</h3>
+
+<ul>
+<li>実行回数：1日100〜500回程度</li>
+<li>実行時間：短時間処理（API + バッチ）</li>
+</ul>
+
+<div class="box">
+想定コスト：0〜500円/月
+</div>
+
+---
+
+<h3>■ DynamoDB（オンデマンド）</h3>
+
+<ul>
+<li>読み書き：低頻度</li>
+<li>データ量：小規模</li>
+</ul>
+
+<div class="box">
+想定コスト：0〜500円/月
+</div>
+
+---
+
+<h3>■ API Gateway</h3>
+
+<ul>
+<li>リクエスト：数千回未満/月</li>
+</ul>
+
+<div class="box">
+想定コスト：0〜300円/月
+</div>
+
+---
+
+<h3>■ AI API（最重要コスト要素）</h3>
+
+<ul>
+<li>1日3〜10回の呼び出し想定</li>
+<li>1回あたりのコスト：約1〜10円（モデル依存）</li>
+</ul>
+
+<div class="box">
+想定コスト：100〜1,000円/月
+</div>
+
+---
+
+<h2>3. 月額コスト総括</h2>
+
+<div class="box">
+合計想定コスト：
+</div>
+
+<pre>
+最小： 0円（無料枠内）
+最大： 約1,500〜2,000円/月
+</pre>
+
+---
+
+<h2>4. 採用技術一覧と理由</h2>
+
+<h3>AWS Lambda</h3>
+<ul>
+<li>サーバ不要で固定費ゼロ</li>
+<li>バッチ処理と相性が良い</li>
+</ul>
+
+<div class="box">
+EC2を採用しない理由：常時課金でコスト過剰
+</div>
+
+---
+
+<h3>DynamoDB</h3>
+<ul>
+<li>スケーラブル</li>
+<li>運用不要</li>
+</ul>
+
+<div class="box">
+RDSを採用しない理由：インスタンス固定費が発生
+</div>
+
+---
+
+<h3>CloudFront</h3>
+<ul>
+<li>高速配信</li>
+<li>S3単体よりUX改善</li>
+</ul>
+
+---
+
+<h3>AI API（外部LLM）</h3>
+<ul>
+<li>釣行判断ロジック生成</li>
+<li>自然言語の理由生成</li>
+</ul>
+
+<div class="box">
+リアルタイム呼び出しは行わない（コスト抑制）
+</div>
+
+---
+
+<h2>5. 非採用技術と理由</h2>
+
+<h3>EC2</h3>
+<ul>
+<li>常時課金が発生（最小でも数千円〜）</li>
+</ul>
+
+<h3>RDS</h3>
+<ul>
+<li>インスタンス固定費（最低1,000円〜）</li>
+</ul>
+
+<h3>リアルタイムスクレイピング</h3>
+<ul>
+<li>外部依存で遅い</li>
+<li>APIコスト増加</li>
+</ul>
+
+---
+
+<h2>6. コスト設計思想</h2>
+
+<div class="box">
+コスト最適化の本質は「単価削減」ではなく「発生回数削減」である
+</div>
+
+<ul>
+<li>リアルタイムを捨てる</li>
+<li>バッチ処理で回数を減らす</li>
+<li>キャッシュ前提設計</li>
+<li>AI呼び出しを最小化</li>
+</ul>
+
+---
+
+<h2>7. まとめ</h2>
+
+<div class="box">
+本システムは「低コスト構造を前提としたサーバレスAIアプリ」であり、  
+月額2,000円以内での運用を前提として設計されている。
+</div>
+
+</body>
+</html>

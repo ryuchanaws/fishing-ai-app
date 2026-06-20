@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>釣行AIアプリ AWS設計統合書（実務版 v2）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+table { border-collapse: collapse; width: 100%; margin-top:10px; }
+td, th { border:1px solid #ccc; padding:8px; }
+th { background:#eef3f8; }
+</style>
+</head>
+
+<body>
+
+<h1>釣行AIアプリ AWS設計統合書（実務版 v2）</h1>
+
+<div class="box">
+本書は、釣行AIアプリの「要件定義・AWS基本設計・Lambda設計・AI設計」を統合し、  
+実装の唯一の基準とする。
+</div>
+
+<hr>
+
+<h2>第1章：システム概要（要件定義）</h2>
+
+<h3>1. システム目的</h3>
+<ul>
+<li>釣り場検索ではなく「釣行意思決定AI」</li>
+<li>ユーザーが最短で「どこで何を釣るか」を決定できる</li>
+<li>PWA（スマホ・PC対応）</li>
+<li>個人〜少人数利用前提</li>
+</ul>
+
+---
+
+<h3>2. コア機能</h3>
+
+<ul>
+<li>TOP3スポット推薦</li>
+<li>スコアリング（AI＋ルール）</li>
+<li>地図表示（Google Maps）</li>
+<li>釣果データ表示</li>
+<li>お気に入り管理</li>
+</ul>
+
+---
+
+<h3>3. スコアロジック</h3>
+
+<pre>
+score =
+  fish_probability * 0.4
++ weather_score * 0.2
++ tide_score * 0.2
+- distance_penalty * 0.1
+- cost_penalty * 0.1
+</pre>
+
+---
+
+<h2>第2章：システムアーキテクチャ（AWS基本設計）</h2>
+
+<pre>
+ユーザー（PWA）
+   ↓
+CloudFront
+   ↓
+S3（Frontend）
+   ↓
+API Gateway
+   ↓
+Lambda（API / Batch）
+   ↓
+DynamoDB
+</pre>
+
+---
+
+<h3>コンポーネント役割</h3>
+
+<ul>
+<li>CloudFront：配信高速化</li>
+<li>S3：Reactホスティング</li>
+<li>API Gateway：API管理</li>
+<li>Lambda：処理実行</li>
+<li>DynamoDB：データ管理</li>
+</ul>
+
+---
+
+<h3>バッチ処理</h3>
+
+<pre>
+EventBridge
+   ↓
+Lambda（データ収集）
+   ↓
+天気・潮汐・釣果API
+   ↓
+DynamoDB保存
+   ↓
+AIスコア生成
+   ↓
+Recommendations更新
+</pre>
+
+---
+
+<h3>リアルタイム方針</h3>
+
+<div class="box">
+リアルタイム処理は禁止し、バッチ中心で設計する
+</div>
+
+<ul>
+<li>コスト削減</li>
+<li>レスポンス安定化</li>
+<li>外部依存排除</li>
+</ul>
+
+---
+
+<h2>第3章：AI設計（重要）</h2>
+
+<h3>1. 採用モデル</h3>
+
+<table>
+<tr><th>用途</th><th>モデル</th><th>理由</th></tr>
+<tr><td>スコア生成</td><td>OpenAI GPT-4.1 / GPT-4o</td><td>数値処理とJSON出力安定</td></tr>
+<tr><td>理由生成</td><td>Claude / GPT-4o</td><td>自然言語品質</td></tr>
+<tr><td>コスト最適化</td><td>Gemini（補助）</td><td>低コストバッチ用途</td></tr>
+</table>
+
+---
+
+<h3>2. AI設計方針</h3>
+
+<ul>
+<li>リアルタイム対話は行わない</li>
+<li>バッチ or API呼び出しでスコア生成</li>
+<li>結果はDynamoDBにキャッシュ保存</li>
+<li>AIは“意思決定エンジン”として扱う</li>
+</ul>
+
+---
+
+<h3>3. 出力フォーマット</h3>
+
+<pre>
+{
+  "spotId": "A123",
+  "score": 87,
+  "fishTypes": ["アジ"],
+  "reason": "潮流が安定しているため",
+  "confidence": 0.82
+}
+</pre>
+
+---
+
+<h2>第4章：Lambda詳細設計</h2>
+
+<h3>1. 方針</h3>
+
+<ul>
+<li>1関数 = 1責務</li>
+<li>API系とバッチ系を分離</li>
+<li>DynamoDB経由アクセス</li>
+</ul>
+
+---
+
+<h3>2. API Lambda</h3>
+
+<table>
+<tr><th>関数</th><th>用途</th></tr>
+<tr><td>getRecommendations</td><td>TOP3取得</td></tr>
+<tr><td>getSpots</td><td>スポット一覧</td></tr>
+<tr><td>getPosts</td><td>釣果取得</td></tr>
+<tr><td>createFavorite</td><td>お気に入り登録</td></tr>
+</table>
+
+---
+
+<h3>3. バッチLambda</h3>
+
+<table>
+<tr><th>関数</th><th>用途</th></tr>
+<tr><td>fetchWeatherBatch</td><td>天気取得</td></tr>
+<tr><td>fetchTideBatch</td><td>潮汐取得</td></tr>
+<tr><td>generateScoreBatch</td><td>AIスコア生成</td></tr>
+<tr><td>updateRecommendationBatch</td><td>推薦更新</td></tr>
+</table>
+
+---
+
+<h3>4. getRecommendations処理</h3>
+
+<pre>
+1. Recommendations取得
+2. 距離補正
+3. スコア順ソート
+4. TOP3抽出
+5. JSON返却
+</pre>
+
+---
+
+<h2>第5章：データ設計（概要）</h2>
+
+<h3>Spots</h3>
+<pre>
+spotId (PK)
+name
+lat
+lng
+</pre>
+
+<h3>Recommendations</h3>
+<pre>
+spotId (PK)
+score
+fishTypes
+reason
+distance
+cost
+weatherScore
+tideScore
+</pre>
+
+<h3>Favorites</h3>
+<pre>
+userId (PK)
+spotId (SK)
+memo
+</pre>
+
+---
+
+<h2>第6章：非機能要件</h2>
+
+<ul>
+<li>API応答：1〜2秒以内</li>
+<li>Lambda自動スケール</li>
+<li>DynamoDBオンデマンド</li>
+<li>99.9%可用性</li>
+</ul>
+
+---
+
+<h2>第7章：システム思想</h2>
+
+<div class="box">
+本システムは「検索アプリ」ではなく  
+AIによる“釣行意思決定エンジン”である
+</div>
+
+---
+
+<h2>第8章：MVP構成</h2>
+
+<ul>
+<li>React + TypeScript</li>
+<li>AWS Lambda</li>
+<li>DynamoDB</li>
+<li>Google Maps</li>
+<li>AIスコアリング</li>
+</ul>
+
+---
+
+<h2>第9章：まとめ</h2>
+
+<div class="box">
+AIはフロントに出さず、裏側の意思決定エンジンとして統合することで、  
+高速・低コスト・高精度な釣行判断システムを実現する。
+</div>
+
+</body>
+</html>

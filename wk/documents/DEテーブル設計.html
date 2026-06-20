@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>DynamoDBテーブル設計書（実務版）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+table { border-collapse: collapse; width: 100%; margin-top:10px; }
+td, th { border:1px solid #ccc; padding:8px; }
+th { background:#eef3f8; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+</style>
+</head>
+
+<body>
+
+<h1>DynamoDBテーブル設計書（実務版）</h1>
+
+<div class="box">
+本設計書は釣行AIアプリにおけるDynamoDBテーブル構造を定義する。
+</div>
+
+<hr>
+
+<h2>1. 設計方針</h2>
+
+<ul>
+<li>スポット中心設計（spotId軸）</li>
+<li>アクセスパターン最適化</li>
+<li>シンプルキー構造優先</li>
+<li>JOIN禁止（NoSQL前提）</li>
+</ul>
+
+---
+
+<h2>2. Spotsテーブル</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>spotId</td></tr>
+<tr><td>name</td><td>スポット名</td></tr>
+<tr><td>lat</td><td>緯度</td></tr>
+<tr><td>lng</td><td>経度</td></tr>
+<tr><td>prefecture</td><td>都道府県</td></tr>
+<tr><td>type</td><td>海/川/港</td></tr>
+<tr><td>createdAt</td><td>作成日時</td></tr>
+</table>
+
+<h3>GSI</h3>
+<pre>
+GSI1:
+PK = prefecture
+SK = spotId
+</pre>
+
+---
+
+<h2>3. Recommendationsテーブル</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>spotId</td></tr>
+<tr><td>score</td><td>総合スコア</td></tr>
+<tr><td>fishTypes</td><td>魚種配列</td></tr>
+<tr><td>reason</td><td>AI理由</td></tr>
+<tr><td>distance</td><td>距離</td></tr>
+<tr><td>cost</td><td>交通費</td></tr>
+<tr><td>weatherScore</td><td>天候スコア</td></tr>
+<tr><td>tideScore</td><td>潮汐スコア</td></tr>
+<tr><td>updatedAt</td><td>更新日時</td></tr>
+</table>
+
+<div class="box">
+特徴：最新1件のみ保持（上書き型キャッシュ）
+</div>
+
+---
+
+<h2>4. Postsテーブル</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>spotId</td></tr>
+<tr><td>SK</td><td>createdAt</td></tr>
+<tr><td>fishType</td><td>魚種</td></tr>
+<tr><td>content</td><td>投稿内容</td></tr>
+<tr><td>imageUrl</td><td>画像URL</td></tr>
+</table>
+
+<div class="box">
+特徴：時系列ソート可能な釣果データ
+</div>
+
+---
+
+<h2>5. Favoritesテーブル</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>userId</td></tr>
+<tr><td>SK</td><td>spotId</td></tr>
+<tr><td>memo</td><td>メモ</td></tr>
+<tr><td>createdAt</td><td>作成日時</td></tr>
+</table>
+
+---
+
+<h2>6. Usersテーブル</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>userId</td></tr>
+<tr><td>googleId</td><td>Google認証ID</td></tr>
+<tr><td>email</td><td>メール</td></tr>
+<tr><td>name</td><td>ユーザー名</td></tr>
+<tr><td>createdAt</td><td>作成日時</td></tr>
+</table>
+
+---
+
+<h2>7. アクセス設計思想</h2>
+
+<ul>
+<li>spotId中心の設計</li>
+<li>Recommendationsはキャッシュ型</li>
+<li>Postsは時系列検索最適化</li>
+<li>Favoritesはユーザー中心設計</li>
+</ul>
+
+---
+
+<h2>8. まとめ</h2>
+
+<div class="box">
+本設計はDynamoDBの特性に最適化し、  
+高速・低コスト・シンプルなアクセス構造を実現する。
+</div>
+
+</body>
+</html>

@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>釣行AIアプリ 提案書</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+</style>
+</head>
+
+<body>
+
+<h1>釣行AIアプリ 提案書</h1>
+
+<div class="box">
+本提案書は、釣行AIアプリの具体的な機能構成・ユーザー体験・画面イメージを示し、  
+企画内容を実現するためのプロダクト仕様を整理したものである。
+</div>
+
+<hr>
+
+<h2>1. 提供するユーザー体験</h2>
+
+<div class="box">
+ユーザーがアプリを開くだけで「今日行くべき釣り場」が即決できる状態を提供する
+</div>
+
+<ul>
+<li>迷わない（意思決定ゼロ化）</li>
+<li>調べない（情報統合済み）</li>
+<li>考えない（AIが提案）</li>
+</ul>
+
+---
+
+<h2>2. コア機能</h2>
+
+<h3>① TOP3おすすめ表示</h3>
+<ul>
+<li>現在地ベースで釣り場を自動評価</li>
+<li>スコアリングしてランキング表示</li>
+</ul>
+
+<div class="box">
+評価要素：釣果期待値 / 天気 / 潮汐 / 距離 / 交通費
+</div>
+
+---
+
+<h3>② 地図表示（Google Maps連携）</h3>
+
+<ul>
+<li>釣りスポットをピン表示</li>
+<li>現在地からの距離表示</li>
+<li>ナビ起動ボタン</li>
+</ul>
+
+<pre>
+https://www.google.com/maps/dir/?api=1&destination=lat,lng
+</pre>
+
+---
+
+<h3>③ 釣果情報・魚種表示</h3>
+
+<ul>
+<li>その場所で釣れる魚種</li>
+<li>過去投稿の釣果データ</li>
+</ul>
+
+---
+
+<h3>④ AI理由表示</h3>
+
+<div class="box">
+なぜその釣り場が良いのかを自然言語で説明
+</div>
+
+例：
+<ul>
+<li>「今日は南風が弱く、岸際でアジが回遊しやすい」</li>
+<li>「潮位が上げ始めでシーバスの活性が高い」</li>
+</ul>
+
+---
+
+<h3>⑤ お気に入り機能</h3>
+
+<ul>
+<li>スポット保存</li>
+<li>履歴管理</li>
+<li>仲間共有（将来拡張）</li>
+</ul>
+
+---
+
+<h2>3. 画面構成（UIイメージ）</h2>
+
+<h3>■ ホーム</h3>
+<ul>
+<li>TOP3おすすめカード</li>
+<li>理由表示</li>
+<li>ワンタップナビ</li>
+</ul>
+
+---
+
+<h3>■ マップ画面</h3>
+<ul>
+<li>Google Maps表示</li>
+<li>ピン一覧</li>
+<li>現在地表示</li>
+</ul>
+
+---
+
+<h3>■ 詳細画面</h3>
+<ul>
+<li>魚種</li>
+<li>釣果履歴</li>
+<li>AIコメント</li>
+<li>ナビボタン</li>
+</ul>
+
+---
+
+<h2>4. ユーザーフロー</h2>
+
+<pre>
+アプリ起動
+   ↓
+現在地取得
+   ↓
+AIがTOP3生成
+   ↓
+理由付きで表示
+   ↓
+地図 or ナビ選択
+</pre>
+
+---
+
+<h2>5. 差別化ポイント</h2>
+
+<ul>
+<li>情報検索アプリではない</li>
+<li>意思決定アプリ</li>
+<li>AIによる理由付き推薦</li>
+<li>リアルタイム依存なし（高速）</li>
+</ul>
+
+<div class="box">
+競合：釣りスポット検索サイト  
+本アプリ：釣行意思決定AI
+</div>
+
+---
+
+<h2>6. 技術構成（概要）</h2>
+
+<ul>
+<li>AWS Lambda</li>
+<li>DynamoDB</li>
+<li>S3 + CloudFront</li>
+<li>API Gateway</li>
+<li>AIバッチ処理</li>
+</ul>
+
+---
+
+<h2>7. MVPスコープ</h2>
+
+<ul>
+<li>TOP3表示</li>
+<li>地図表示</li>
+<li>詳細情報</li>
+<li>ナビ連携</li>
+<li>お気に入り</li>
+</ul>
+
+---
+
+<h2>8. 将来拡張</h2>
+
+<ul>
+<li>仲間グループ共有</li>
+<li>釣果予測AI強化</li>
+<li>リアルタイム潮汐最適化</li>
+<li>釣具レコメンド</li>
+</ul>
+
+---
+
+<h2>9. まとめ</h2>
+
+<div class="box">
+本アプリは「検索」ではなく「意思決定」を提供し、  
+ユーザーの行動を直接最適化するAIプロダクトである。
+</div>
+
+</body>
+</html>
