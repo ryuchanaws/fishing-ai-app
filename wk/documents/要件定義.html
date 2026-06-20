@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>釣行AIアプリ 要件定義書（実務版）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+</style>
+</head>
+
+<body>
+
+<h1>釣行AIアプリ 要件定義書（実務版 v1）</h1>
+
+<div class="box">
+本要件定義書は、釣行AIアプリの機能・データ・制約を明確化し、  
+以降の設計・実装の唯一の基準とする。
+</div>
+
+<hr>
+
+<h2>1. システム概要</h2>
+
+<ul>
+<li>釣り場検索アプリではなく「釣行意思決定AI」</li>
+<li>ユーザーの意思決定を最短化することが目的</li>
+<li>PWA（スマホ・PC対応）</li>
+<li>利用規模：個人＋少人数（1〜2人）</li>
+</ul>
+
+---
+
+<h2>2. 機能要件</h2>
+
+<h3>2.1 TOP3おすすめ機能</h3>
+<ul>
+<li>現在地から釣り場をスコアリング</li>
+<li>TOP3をランキング表示</li>
+<li>スコア算出理由を表示</li>
+</ul>
+
+---
+
+<h3>2.2 スコアリングロジック</h3>
+
+<pre>
+score =
+  釣果期待値
++ 天気適正
++ 潮汐適正
++ 魚種適合度
+- 距離
+- 交通費
+</pre>
+
+---
+
+<h3>2.3 地図機能</h3>
+<ul>
+<li>Google Maps表示</li>
+<li>スポットピン表示</li>
+<li>現在地からの距離表示</li>
+<li>ナビ起動</li>
+</ul>
+
+<pre>
+https://www.google.com/maps/dir/?api=1&destination=lat,lng
+</pre>
+
+---
+
+<h3>2.4 釣果・投稿機能</h3>
+<ul>
+<li>スポットごとの投稿閲覧</li>
+<li>魚種データ保存</li>
+<li>写真投稿</li>
+<li>投稿日時記録</li>
+</ul>
+
+---
+
+<h3>2.5 AI説明機能</h3>
+
+<ul>
+<li>なぜそのスポットが良いかを自然言語で説明</li>
+<li>釣れる魚種の理由生成</li>
+</ul>
+
+---
+
+<h3>2.6 お気に入り機能</h3>
+<ul>
+<li>スポット保存</li>
+<li>メモ保存</li>
+<li>ユーザー単位管理</li>
+</ul>
+
+---
+
+<h2>3. データ要件（論理モデル）</h2>
+
+<h3>■ Spots</h3>
+<pre>
+spotId (PK)
+name
+lat
+lng
+source
+updatedAt
+</pre>
+
+---
+
+<h3>■ Posts</h3>
+<pre>
+postId (PK)
+spotId (SK)
+fishType
+content
+imageUrl
+createdAt
+</pre>
+
+---
+
+<h3>■ Recommendations</h3>
+<pre>
+spotId (PK)
+score
+fishTypes
+reason
+distance
+cost
+weatherScore
+tideScore
+</pre>
+
+---
+
+<h3>■ Favorites</h3>
+<pre>
+userId (PK)
+spotId (SK)
+memo
+createdAt
+</pre>
+
+---
+
+<h3>■ Users</h3>
+<pre>
+userId (PK)
+googleId
+name
+email
+createdAt
+</pre>
+
+---
+
+<h2>4. 非機能要件</h2>
+
+<ul>
+<li>レスポンス：1〜2秒以内</li>
+<li>可用性：99.9%（サーバレス前提）</li>
+<li>スケーラビリティ：Lambda自動スケール</li>
+<li>セキュリティ：Google認証（Cognito）</li>
+</ul>
+
+---
+
+<h2>5. 制約条件</h2>
+
+<ul>
+<li>リアルタイム処理は禁止（コスト・遅延防止）</li>
+<li>データはバッチ収集を基本とする</li>
+<li>AIはキャッシュ前提で利用</li>
+</ul>
+
+---
+
+<h2>6. API要件</h2>
+
+<ul>
+<li>GET /recommendations</li>
+<li>GET /spots</li>
+<li>GET /posts</li>
+<li>POST /favorites</li>
+<li>GET /favorites</li>
+</ul>
+
+---
+
+<h2>7. ユーザーフロー</h2>
+
+<pre>
+アプリ起動
+↓
+現在地取得
+↓
+スポット取得
+↓
+AIスコアリング
+↓
+TOP3表示
+↓
+詳細 or ナビ
+</pre>
+
+---
+
+<h2>8. システム境界</h2>
+
+<ul>
+<li>外部：天気・潮汐データ</li>
+<li>内部：スポット・投稿・推薦データ</li>
+<li>AI：推薦理由生成のみ</li>
+</ul>
+
+---
+
+<h2>9. MVP範囲</h2>
+
+<ul>
+<li>TOP3表示</li>
+<li>地図表示</li>
+<li>詳細表示</li>
+<li>ナビ</li>
+<li>お気に入り</li>
+</ul>
+
+---
+
+<h2>10. まとめ</h2>
+
+<div class="box">
+本システムは「検索システム」ではなく  
+「釣行意思決定支援AIシステム」である。
+</div>
+
+</body>
+</html>

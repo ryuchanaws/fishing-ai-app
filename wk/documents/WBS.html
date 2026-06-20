@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>釣行AIアプリ WBS（実務版）</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+</style>
+</head>
+
+<body>
+
+<h1>釣行AIアプリ WBS（実務版 v1）</h1>
+
+<div class="box">
+本WBSは、釣行AIアプリのMVP開発を前提にタスクを分解し、  
+実装計画と進行管理を可能にするためのものである。
+</div>
+
+<hr>
+
+<h2>1. 全体フェーズ構造</h2>
+
+<pre>
+Phase 1：企画・設計
+Phase 2：AWS基盤構築
+Phase 3：バックエンド実装
+Phase 4：フロント実装
+Phase 5：AI・ロジック実装
+Phase 6：統合・テスト
+Phase 7：デプロイ
+</pre>
+
+---
+
+<h2>2. Phase 1：企画・設計</h2>
+
+<ul>
+<li>要件定義書作成</li>
+<li>AWS基本設計</li>
+<li>詳細設計</li>
+<li>データ設計確定</li>
+</ul>
+
+<div class="box">
+成果物：設計書一式完成
+</div>
+
+---
+
+<h2>3. Phase 2：AWS基盤構築</h2>
+
+<ul>
+<li>S3バケット作成</li>
+<li>CloudFront設定</li>
+<li>API Gateway作成</li>
+<li>Lambda初期構築</li>
+<li>DynamoDB作成</li>
+<li>Cognito設定（Googleログイン）</li>
+</ul>
+
+<div class="box">
+成果物：動作可能なAWS基盤
+</div>
+
+---
+
+<h2>4. Phase 3：バックエンド実装</h2>
+
+<h3>■ API実装</h3>
+<ul>
+<li>GET /recommendations</li>
+<li>GET /spots</li>
+<li>GET /posts</li>
+<li>POST /favorites</li>
+</ul>
+
+<h3>■ ロジック実装</h3>
+<ul>
+<li>距離計算</li>
+<li>交通費計算</li>
+<li>スコアリング処理</li>
+</ul>
+
+<div class="box">
+成果物：API動作確認完了
+</div>
+
+---
+
+<h2>5. Phase 4：フロントエンド実装</h2>
+
+<ul>
+<li>PWA構築</li>
+<li>TOP3画面作成</li>
+<li>地図表示（Google Maps）</li>
+<li>詳細画面</li>
+<li>お気に入りUI</li>
+</ul>
+
+<div class="box">
+成果物：ブラウザアプリ完成
+</div>
+
+---
+
+<h2>6. Phase 5：AIロジック実装</h2>
+
+<ul>
+<li>スコアリングAI調整</li>
+<li>理由生成プロンプト作成</li>
+<li>バッチ処理統合</li>
+<li>キャッシュ設計</li>
+</ul>
+
+<div class="box">
+成果物：推薦ロジック完成
+</div>
+
+---
+
+<h2>7. Phase 6：統合テスト</h2>
+
+<ul>
+<li>APIテスト</li>
+<li>フロント連携テスト</li>
+<li>スコア整合性確認</li>
+<li>負荷テスト（軽量）</li>
+</ul>
+
+---
+
+<h2>8. Phase 7：デプロイ</h2>
+
+<ul>
+<li>GitHub Actions設定</li>
+<li>S3自動デプロイ</li>
+<li>Lambda自動更新</li>
+<li>CloudFrontキャッシュ更新</li>
+</ul>
+
+---
+
+<h2>9. タスク優先順位（MVP）</h2>
+
+<ol>
+<li>AWS基盤構築</li>
+<li>recommendations API</li>
+<li>スコアリングロジック</li>
+<li>フロントTOP3表示</li>
+<li>地図表示</li>
+<li>お気に入り機能</li>
+<li>AI理由生成</li>
+</ol>
+
+---
+
+<h2>10. 工数目安（個人開発想定）</h2>
+
+<ul>
+<li>設計：2〜3日</li>
+<li>AWS構築：2〜4日</li>
+<li>バックエンド：3〜5日</li>
+<li>フロント：3〜5日</li>
+<li>AI実装：2〜3日</li>
+<li>統合：2日</li>
+</ul>
+
+<div class="box">
+合計：2〜3週間MVP想定
+</div>
+
+---
+
+<h2>11. リスク管理</h2>
+
+<ul>
+<li>外部API障害 → キャッシュで吸収</li>
+<li>AIコスト増 → バッチ化で制御</li>
+<li>スコア精度不足 → ロジック調整</li>
+</ul>
+
+---
+
+<h2>12. まとめ</h2>
+
+<div class="box">
+本WBSは、釣行AIアプリを「設計から実装まで」分解し、  
+短期間でMVPを完成させるための実行計画である。
+</div>
+
+</body>
+</html>
