@@ -1,0 +1,269 @@
+# ==============================================================
+# template.yaml
+#
+# 釣行AIアプリ — AWS SAM テンプレート
+# CloudFormation スタック名: fishing-ai-app
+#
+# 構成リソース:
+#   - DynamoDB テーブル x4（Spots / Recommendations / Favorites / Posts）
+#   - Lambda 関数 x8（API系 x6 / バッチ系 x2）
+#   - API Gateway（SAM が自動生成）
+#   - EventBridge スケジュール（毎日 AM6:00 JST）
+#
+# デプロイ:
+#   sam build -t infrastructure/template.yaml
+#   sam deploy --stack-name fishing-ai-app --capabilities CAPABILITY_IAM
+# ==============================================================
+
+AWSTemplateFormatVersion: "2010-09-09"
+
+# AWS SAM 変換マクロを有効化
+# SAM 独自のリソース型（AWS::Serverless::Function など）を使用するために必要
+Transform: AWS::Serverless-2016-10-31
+
+Description: Fishing AI App - Serverless Backend
+
+# ==============================================================
+# グローバル設定
+# 全 Lambda 関数・API に共通して適用されるデフォルト値
+# ==============================================================
+Globals:
+  Function:
+    Runtime: python3.12   # Python ランタイムバージョン
+    Timeout: 60           # デフォルトタイムアウト（秒）
+    MemorySize: 256       # デフォルトメモリサイズ（MB）
+    Environment:
+      Variables:
+        # DynamoDB テーブル名を環境変数として各 Lambda に渡す
+        # !Ref で論理 ID からテーブル名を動的に取得する
+        SPOTS_TABLE: !Ref SpotsTable
+        RECOMMENDATIONS_TABLE: !Ref RecommendationsTable
+        FAVORITES_TABLE: !Ref FavoritesTable
+        POSTS_TABLE: !Ref PostsTable
+        # Claude API キーを SSM パラメータストアから動的に取得
+        # キーは手順1で登録した /fishing-ai/claude-api-key を参照
+        CLAUDE_API_KEY: !Sub "{{resolve:ssm:/fishing-ai/claude-api-key}}"
+        # 手動バッチ実行 Lambda から呼び出し先 Lambda 名を参照するために設定
+        BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
+
+  Api:
+    # CORS 設定（フロントエンドの S3/CloudFront からのアクセスを許可）
+    Cors:
+      AllowMethods: "'GET,POST,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization'"
+      AllowOrigin: "'*'"   # 本番環境では CloudFront ドメインに絞ることを推奨
+
+Resources:
+
+  # ==============================================================
+  # DynamoDB テーブル定義
+  # BillingMode: PAY_PER_REQUEST = リクエスト単位課金（個人利用に最適）
+  # ==============================================================
+
+  # 釣りスポットマスタ（スポットID・名称・座標・魚種など）
+  SpotsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-spots
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: spotId, AttributeType: S }  # PK: スポットID（文字列）
+      KeySchema:
+        - { AttributeName: spotId, KeyType: HASH }     # HASH = パーティションキー
+
+  # AI バッチが生成したスコア・推薦理由を保存するテーブル
+  RecommendationsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-recommendations
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: spotId, AttributeType: S }  # PK: スポットID（文字列）
+      KeySchema:
+        - { AttributeName: spotId, KeyType: HASH }
+
+  # ユーザーのお気に入りスポットを保存するテーブル
+  # userId（PK）+ spotId（SK）の複合キーで一意性を担保
+  FavoritesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-favorites
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }  # PK: ユーザーID（文字列）
+        - { AttributeName: spotId, AttributeType: S }  # SK: スポットID（文字列）
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }     # HASH = パーティションキー
+        - { AttributeName: spotId, KeyType: RANGE }    # RANGE = ソートキー
+
+  # 釣果投稿を保存するテーブル（将来拡張用）
+  PostsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-posts
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: postId, AttributeType: S }  # PK: 投稿ID（文字列）
+      KeySchema:
+        - { AttributeName: postId, KeyType: HASH }
+
+  # ==============================================================
+  # Lambda 関数定義（API系）
+  # CodeUri で指定したディレクトリの requirements.txt を自動インストール
+  # Policies で最小権限の IAM ポリシーを付与（最小権限の原則）
+  # ==============================================================
+
+  # GET /recommendations — おすすめスポット一覧をスコア降順で返す
+  GetRecommendationsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getRecommendationsHandler
+      Handler: handlers.get_recommendations      # handlers.py の get_recommendations 関数
+      CodeUri: lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref RecommendationsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /recommendations
+            Method: GET
+
+  # GET /spots — 全釣りスポット一覧を返す
+  GetSpotsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getSpotsHandler
+      Handler: handlers.get_spots
+      CodeUri: lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /spots
+            Method: GET
+
+  # GET /posts — 投稿一覧を新しい順で返す
+  GetPostsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getPostsHandler
+      Handler: handlers.get_posts
+      CodeUri: lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref PostsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: GET
+
+  # GET /favorites — 指定ユーザーのお気に入り一覧を返す
+  GetFavoritesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getFavoritesHandler
+      Handler: handlers.get_favorites
+      CodeUri: lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref FavoritesTable }
+        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /favorites
+            Method: GET
+
+  # POST /favorites — お気に入りスポットを追加する
+  CreateFavoriteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: createFavoriteHandler
+      Handler: handlers.create_favorite
+      CodeUri: lambda/api/
+      Policies:
+        # CrudPolicy = Create / Read / Update / Delete 全権限
+        - DynamoDBCrudPolicy: { TableName: !Ref FavoritesTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /favorites
+            Method: POST
+
+  # DELETE /favorites/{spotId} — お気に入りスポットを削除する
+  DeleteFavoriteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: deleteFavoriteHandler
+      Handler: handlers.delete_favorite
+      CodeUri: lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref FavoritesTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /favorites/{spotId}
+            Method: DELETE
+
+  # ==============================================================
+  # Lambda 関数定義（バッチ系）
+  # ==============================================================
+
+  # 全スポットのスコア計算 + Claude API による推薦理由生成バッチ
+  # Timeout: 300秒（スポット数 x Claude API 呼び出し時間を考慮）
+  # MemorySize: 512MB（大きめに設定してコールドスタートを抑制）
+  GenerateSpotScoreBatch:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: generateSpotScoreBatch
+      Handler: generate_score.handler
+      CodeUri: lambda/batch/
+      Timeout: 300     # API系のデフォルト60秒より長く設定
+      MemorySize: 512  # API系のデフォルト256MBより大きく設定
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref RecommendationsTable }
+      Events:
+        # EventBridge スケジュール（毎日 AM6:00 JST = 21:00 UTC に自動実行）
+        # cron 形式: cron(分 時 日 月 曜日 年)
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 21 * * ? *)
+            Enabled: true
+
+  # POST /admin/run-ai-batch — フロントの「AI実行ボタン」から手動でバッチを起動する
+  # GenerateSpotScoreBatch を同期呼び出し（RequestResponse）するため
+  # Timeout は GenerateSpotScoreBatch の 300秒 + バッファの 330秒に設定
+  AdminRunAiBatchFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: adminRunAiBatch
+      Handler: admin_trigger.handler
+      CodeUri: lambda/batch/
+      Timeout: 330
+      Policies:
+        # GenerateSpotScoreBatch の invoke 権限のみ付与（最小権限の原則）
+        - LambdaInvokePolicy: { FunctionName: !Ref GenerateSpotScoreBatch }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /admin/run-ai-batch
+            Method: POST
+
+# ==============================================================
+# スタック出力
+# SAM デプロイ後にコンソールや GitHub Secrets に設定する値
+# ==============================================================
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway のエンドポイント URL（VITE_API_BASE_URL に設定すること）"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
