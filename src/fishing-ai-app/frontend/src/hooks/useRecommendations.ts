@@ -1,100 +1,80 @@
 /**
- * @fileoverview API Gateway へのHTTPリクエストを担当するAPIクライアント。
- * axios インスタンスを共有し、全エンドポイントへのアクセスを提供する。
- */
-
-import axios from "axios";
-import type { Recommendation, Spot, Post, Favorite, BatchStatus } from "../types";
-
-/**
- * API Gateway のベースURL。
- * 環境変数 VITE_API_BASE_URL が未設定の場合はプレースホルダーを使用する。
- */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://your-api-id.execute-api.ap-northeast-1.amazonaws.com/prod";
-
-/**
- * 共有 axios インスタンス。
- * タイムアウト・Content-Type ヘッダーをデフォルト設定済み。
- */
-const api = axios.create({
-  baseURL: BASE_URL,
-  timeout: 10000,
-  headers: { "Content-Type": "application/json" },
-});
-
-/**
- * おすすめスポット一覧を取得する。
+ * @fileoverview おすすめスポットの状態管理カスタムフック。
  *
- * @returns {Promise<Recommendation[]>} スコア降順のおすすめスポットリスト
+ * おすすめデータの取得・AI バッチの手動実行・実行状態の管理を提供する。
  */
-export const getRecommendations = async (): Promise<Recommendation[]> => {
-  const { data } = await api.get("/recommendations");
-  return data.items ?? data;
-};
+
+import { useState, useEffect, useCallback } from "react";
+import type { Recommendation, BatchStatus } from "../types";
+import { getRecommendations, runAiBatch } from "../api/client";
 
 /**
- * 全釣りスポット一覧を取得する。
+ * おすすめスポットを管理するカスタムフック。
  *
- * @returns {Promise<Spot[]>} 全スポットリスト
+ * @returns {object} おすすめ管理に必要な状態と操作関数
+ * @returns {Recommendation[]} recommendations - スコア降順のおすすめリスト
+ * @returns {boolean}          loading         - データ取得中フラグ
+ * @returns {BatchStatus}      batchStatus     - AI バッチの実行状態
+ * @returns {string | null}    error           - エラーメッセージ
+ * @returns {Function}         triggerAiBatch  - AI バッチを手動実行する関数
+ * @returns {Function}         refetch         - おすすめデータを再取得する関数
  */
-export const getSpots = async (): Promise<Spot[]> => {
-  const { data } = await api.get("/spots");
-  return data.items ?? data;
-};
+export const useRecommendations = () => {
+  /** スコア降順にソートされたおすすめスポット一覧 */
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
 
-/**
- * 投稿一覧を取得する。
- *
- * @returns {Promise<Post[]>} 新しい順にソートされた投稿リスト
- */
-export const getPosts = async (): Promise<Post[]> => {
-  const { data } = await api.get("/posts");
-  return data.items ?? data;
-};
+  /** データ取得中フラグ */
+  const [loading, setLoading] = useState(true);
 
-/**
- * 指定ユーザーのお気に入りスポット一覧を取得する。
- *
- * @param {string} userId - ユーザーID
- * @returns {Promise<Favorite[]>} お気に入りスポットリスト
- */
-export const getFavorites = async (userId: string): Promise<Favorite[]> => {
-  const { data } = await api.get(`/favorites?userId=${userId}`);
-  return data.items ?? data;
-};
+  /** AI バッチの実行状態 */
+  const [batchStatus, setBatchStatus] = useState<BatchStatus>({ status: "idle" });
 
-/**
- * お気に入りスポットを追加する。
- *
- * @param {string} userId - ユーザーID
- * @param {string} spotId - 追加するスポットID
- * @param {string} [memo] - メモ（省略可）
- * @returns {Promise<void>}
- */
-export const addFavorite = async (userId: string, spotId: string, memo?: string): Promise<void> => {
-  await api.post("/favorites", { userId, spotId, memo });
-};
+  /** エラーメッセージ（エラーなしの場合は null） */
+  const [error, setError] = useState<string | null>(null);
 
-/**
- * お気に入りスポットを削除する。
- *
- * @param {string} userId - ユーザーID
- * @param {string} spotId - 削除するスポットID
- * @returns {Promise<void>}
- */
-export const removeFavorite = async (userId: string, spotId: string): Promise<void> => {
-  await api.delete(`/favorites/${spotId}?userId=${userId}`);
-};
+  /**
+   * おすすめデータを API から取得してスコア降順にソートする。
+   */
+  const fetchRecommendations = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await getRecommendations();
+      const sorted = [...data].sort((a, b) => b.score - a.score);
+      setRecommendations(sorted);
+    } catch {
+      setError("おすすめ情報の取得に失敗しました");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-/**
- * AI バッチ処理を手動実行する。
- *
- * POST /admin/run-ai-batch を呼び出し、
- * generateSpotScoreBatch Lambda を起動してスコアと推薦理由を更新する。
- *
- * @returns {Promise<BatchStatus>} バッチ処理の実行結果
- */
-export const runAiBatch = async (): Promise<BatchStatus> => {
-  const { data } = await api.post("/admin/run-ai-batch");
-  return data;
+  /**
+   * AI バッチを手動実行し、完了後におすすめデータを再取得する。
+   * 「AI分析を実行」ボタンから呼び出される。
+   */
+  const triggerAiBatch = useCallback(async () => {
+    setBatchStatus({ status: "running", startedAt: new Date().toISOString() });
+    try {
+      const result = await runAiBatch();
+      setBatchStatus({ ...result, status: "completed" });
+      await fetchRecommendations();
+    } catch {
+      setBatchStatus({ status: "failed", message: "AI分析の実行に失敗しました" });
+    }
+  }, [fetchRecommendations]);
+
+  /** マウント時におすすめデータを初回取得する */
+  useEffect(() => {
+    fetchRecommendations();
+  }, [fetchRecommendations]);
+
+  return {
+    recommendations,
+    loading,
+    batchStatus,
+    error,
+    triggerAiBatch,
+    refetch: fetchRecommendations,
+  };
 };

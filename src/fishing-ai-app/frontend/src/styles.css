@@ -1,300 +1,947 @@
 /* ===== RESET & BASE ===== */
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-:root {
-  --bg: #0f1117;
-  --bg2: #1a1d27;
-  --bg3: #232635;
-  --border: #2e3148;
-  --text: #e8eaf0;
-  --text2: #9ca3af;
-  --accent: #00c896;
-  --accent2: #0099ff;
-  --danger: #e05c5c;
-  --warn: #f5a623;
-  --radius: 12px;
-  --radius-sm: 8px;
-  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+/* 全要素のボックスサイズ計算を統一し、デフォルトの余白をリセットする */
+*, *::before, *::after  {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
-body {
+/* ===== CSS カスタムプロパティ（デザイントークン） ===== */
+/* アプリ全体で共有する色・サイズ・影の変数を定義する */
+/* var(--変数名) で参照することで一括変更が可能 */
+:root  {
+
+  /* 背景色: 3段階の明度で奥行きを表現 */
+  --bg: #0f1117;
+  /* ページ背景（最も暗い） */;
+  --bg2: #1a1d27;
+  /* カード背景 */;
+  --bg3: #232635;
+  /* インプット・スタット背景（最も明るい） */;
+
+  /* ボーダー・テキスト */
+  --border: #2e3148;
+  /* 区切り線・枠線 */;
+  --text: #e8eaf0;
+  /* メインテキスト */;
+  --text2: #9ca3af;
+  /* サブテキスト・ラベル */;
+
+  /* アクセントカラー */
+  --accent: #00c896;
+  /* メインアクセント（緑）: 高スコア・アクティブ状態 */;
+  --accent2: #0099ff;
+  /* セカンダリアクセント（青）: ナビボタン */;
+  --danger: #e05c5c;
+  /* 危険・お気に入り（赤） */;
+  --warn: #f5a623;
+  /* 警告・2位バッジ（オレンジ） */;
+
+  /* 形状 */
+  --radius: 12px;
+  /* カード・モーダルの角丸 */;
+  --radius-sm: 8px;
+  /* ボタン・タグの角丸 */;
+  --shadow: 0 4px 24px rgba(0,0,0,0.4);
+  /* カードホバー時の影 */;
+
+}
+
+/* ベーススタイル: フォント・行間・最小高さを設定 */
+body  {
+
   background: var(--bg);
   color: var(--text);
+  /* システムフォントスタック: macOS / Windows / Android に最適なフォントを自動選択 */
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
   font-size: 15px;
   line-height: 1.6;
   min-height: 100vh;
+
 }
 
 /* ===== LAYOUT ===== */
-.app-layout { display: flex; flex-direction: column; min-height: 100vh; }
-.main-content { flex: 1; padding: 16px; max-width: 900px; margin: 0 auto; width: 100%; padding-top: 80px; }
+/* NavBar（固定）+ main コンテンツの縦並びレイアウト */
+.app-layout  {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+/* max-width で横幅を制限し中央揃え。padding-top は固定 NavBar の高さ分 */
+.main-content  {
+  flex: 1;
+  padding: 16px;
+  max-width: 900px;
+  margin: 0 auto;
+  width: 100%;
+  padding-top: 80px;
+}
 
 /* ===== NAVBAR ===== */
-.navbar {
-  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+/* 画面上部に固定。backdrop-filter でスクロール時も読みやすくする */
+.navbar  {
+
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
   background: rgba(15,17,23,0.92);
+  /* 半透明で背景をぼかす */;
   backdrop-filter: blur(12px);
+  /* ガラスモーフィズム効果 */;
   border-bottom: 1px solid var(--border);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 20px; height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 60px;
+
 }
-.nav-brand { display: flex; align-items: center; gap: 8px; }
-.nav-logo { font-size: 22px; }
-.nav-title { font-weight: 700; font-size: 16px; color: var(--accent); letter-spacing: 0.02em; }
-.nav-links { display: flex; gap: 4px; }
-.nav-link {
-  display: flex; flex-direction: column; align-items: center; gap: 2px;
-  padding: 6px 14px; border-radius: var(--radius-sm);
-  color: var(--text2); text-decoration: none; font-size: 11px;
+
+/* ブランドロゴエリア: アイコン + アプリ名 */
+.nav-brand  {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nav-logo  {
+  font-size: 22px;
+}
+
+.nav-title  {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--accent);
+  letter-spacing: 0.02em;
+}
+
+/* ナビゲーションリンク一覧 */
+.nav-links  {
+  display: flex;
+  gap: 4px;
+}
+
+/* 各リンク: アイコン + テキストの縦並び */
+.nav-link  {
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 14px;
+  border-radius: var(--radius-sm);
+  color: var(--text2);
+  text-decoration: none;
+  font-size: 11px;
   transition: all 0.2s;
+
 }
-.nav-link:hover { color: var(--text); background: var(--bg3); }
-.nav-link.active { color: var(--accent); }
+
+.nav-link:hover  {
+  color: var(--text);
+  background: var(--bg3);
+}
+
+/* react-router-dom の NavLink が付与するアクティブクラス */
+.nav-link.active  {
+  color: var(--accent);
+}
 
 /* ===== PAGE ===== */
-.page { padding-bottom: 40px; }
-.page-header {
-  display: flex; align-items: flex-start; justify-content: space-between;
-  margin-bottom: 24px;
+/* 全ページ共通: 下部に余白を確保 */
+.page  {
+  padding-bottom: 40px;
 }
-.page-title { font-size: 22px; font-weight: 700; margin-bottom: 2px; }
-.page-sub { color: var(--text2); font-size: 13px; }
+
+/* ページヘッダー: タイトルと右側のアクションボタンを両端揃え */
+.page-header  {
+
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 24px;
+
+}
+
+.page-title  {
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.page-sub  {
+  color: var(--text2);
+  font-size: 13px;
+}
 
 /* ===== AI BATCH BUTTON ===== */
-.ai-batch-section { margin-bottom: 28px; }
-.ai-batch-wrapper { display: flex; flex-direction: column; gap: 8px; }
+/* 「AI分析を実行」ボタンのラッパー */
+.ai-batch-section  {
+  margin-bottom: 28px;
+}
 
-.ai-batch-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 12px 24px; border-radius: var(--radius);
+/* ボタン + 結果メッセージの縦並び */
+.ai-batch-wrapper  {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* グラデーション背景のメインアクションボタン */
+.ai-batch-btn  {
+
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-radius: var(--radius);
   background: linear-gradient(135deg, #00c896, #0099ff);
-  color: #fff; font-size: 15px; font-weight: 700;
-  border: none; cursor: pointer;
+  /* 緑→青のグラデーション */;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
   box-shadow: 0 4px 20px rgba(0,200,150,0.3);
   transition: all 0.2s;
-}
-.ai-batch-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 28px rgba(0,200,150,0.45); }
-.ai-batch-btn:active { transform: translateY(0); }
-.ai-batch-btn.running { opacity: 0.75; cursor: not-allowed; }
-.ai-batch-btn:disabled { transform: none; }
 
-.batch-status {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 13px; padding: 6px 12px; border-radius: var(--radius-sm);
 }
-.batch-status.success { color: var(--accent); background: rgba(0,200,150,0.1); }
-.batch-status.error { color: var(--danger); background: rgba(224,92,92,0.1); }
+
+/* ホバー時: 上方向に浮かせて影を強調 */
+.ai-batch-btn:hover  {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 28px rgba(0,200,150,0.45);
+}
+
+.ai-batch-btn:active  {
+  transform: translateY(0);
+}
+
+/* 実行中: 半透明 + カーソル変更で操作不可を表現 */
+.ai-batch-btn.running  {
+  opacity: 0.75;
+  cursor: not-allowed;
+}
+
+.ai-batch-btn:disabled  {
+  transform: none;
+}
+
+/* バッチ実行結果メッセージ（完了 / エラー） */
+.batch-status  {
+
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+
+}
+
+.batch-status.success  {
+  color: var(--accent);
+  background: rgba(0,200,150,0.1);
+}
+
+.batch-status.error  {
+  color: var(--danger);
+  background: rgba(224,92,92,0.1);
+}
 
 /* ===== SECTION ===== */
-.section-title {
-  font-size: 16px; font-weight: 700;
+/* セクションタイトル: アイコン + テキストの横並び */
+.section-title  {
+
+  font-size: 16px;
+  font-weight: 700;
   margin-bottom: 16px;
-  display: flex; align-items: center; gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
 }
-.section-icon { font-size: 18px; }
-.top3-section { margin-bottom: 40px; }
-.more-section { margin-bottom: 20px; }
+
+.section-icon  {
+  font-size: 18px;
+}
+
+/* TOP3 セクションは下に大きめの余白 */
+.top3-section  {
+  margin-bottom: 40px;
+}
+
+.more-section  {
+  margin-bottom: 20px;
+}
 
 /* ===== GRIDS ===== */
-.top3-grid {
+/* TOP3 グリッド: 最小 280px で自動折り返し */
+.top3-grid  {
+
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
+
 }
-.rec-list { display: flex; flex-direction: column; gap: 14px; }
+
+/* その他スポット・お気に入り: 縦1列リスト */
+.rec-list  {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
 
 /* ===== RECOMMENDATION CARD ===== */
-.rec-card {
+/* おすすめカード: ホバーで浮き上がりアニメーション */
+.rec-card  {
+
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 18px;
   cursor: pointer;
   position: relative;
+  /* ランクバッジの absolute 配置の基準 */;
   transition: all 0.2s;
-}
-.rec-card:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: var(--shadow); }
 
-.rank-badge {
-  position: absolute; top: -8px; left: 16px;
-  padding: 2px 10px; border-radius: 20px;
-  font-size: 11px; font-weight: 700; color: #fff;
 }
 
-.card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px; }
-.spot-name { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+.rec-card:hover  {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow);
+}
 
-.fish-tags { display: flex; flex-wrap: wrap; gap: 5px; }
-.fish-tag {
-  display: inline-flex; align-items: center; gap: 4px;
+/* ランクバッジ: カード左上に絶対配置（#1〜#3） */
+.rank-badge  {
+
+  position: absolute;
+  top: -8px;
+  left: 16px;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+
+}
+
+/* カードヘッダー: スポット名・魚種 と スコアサークルを左右に配置 */
+.card-header  {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.spot-name  {
+  font-size: 17px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+/* 魚種タグ一覧 */
+.fish-tags  {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.fish-tag  {
+
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: rgba(0,200,150,0.12);
   color: var(--accent);
-  font-size: 11px; padding: 3px 8px; border-radius: 20px;
-}
-.fish-tag.large { font-size: 13px; padding: 5px 12px; }
-.fish-tag.sm { font-size: 10px; padding: 2px 6px; }
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 20px;
 
-.score-circle {
-  width: 60px; height: 60px; flex-shrink: 0;
-  border: 3px solid; border-radius: 50%;
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+}
+
+.fish-tag.large  {
+  font-size: 13px;
+  padding: 5px 12px;
+}
+/* 詳細モーダル用 */
+.fish-tag.sm  {
+  font-size: 10px;
+  padding: 2px 6px;
+}
+/* スポット一覧用 */
+
+/* スコアサークル: スコアに応じた色のボーダーで囲む円形バッジ */
+.score-circle  {
+
+  width: 60px;
+  height: 60px;
+  flex-shrink: 0;
+  border: 3px solid;
+  /* 色は JS から inline style で指定 */;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   line-height: 1;
-}
-.score-num { font-size: 20px; font-weight: 800; }
-.score-label { font-size: 9px; font-weight: 600; opacity: 0.85; }
 
-.reason-text {
-  font-size: 13px; color: var(--text2);
-  margin-bottom: 12px; line-height: 1.6;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.card-meta {
-  display: flex; flex-wrap: wrap; gap: 10px;
-  font-size: 12px; color: var(--text2);
+.score-num  {
+  font-size: 20px;
+  font-weight: 800;
+}
+
+.score-label  {
+  font-size: 9px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+/* AI コメント: 2行で切り捨て（標準 line-clamp + WebKit プレフィックス） */
+.reason-text  {
+
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 12px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+
+}
+
+/* メタ情報: 天気・潮汐・距離・費用を横並び */
+.card-meta  {
+
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text2);
   margin-bottom: 14px;
+
 }
 
-.card-actions { display: flex; gap: 8px; }
+/* カードアクション: ナビ・お気に入りボタンを横並び */
+.card-actions  {
+  display: flex;
+  gap: 8px;
+}
 
-.nav-btn, .fav-btn {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 8px 12px; border-radius: var(--radius-sm);
-  font-size: 13px; font-weight: 600; border: 1px solid; cursor: pointer;
+/* ナビ・お気に入りボタン共通スタイル */
+.nav-btn, .fav-btn  {
+
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid;
+  cursor: pointer;
   transition: all 0.2s;
+
 }
-.nav-btn {
-  background: transparent; border-color: var(--accent2); color: var(--accent2);
+
+/* ナビボタン: 青いアウトラインスタイル */
+.nav-btn  {
+
+  background: transparent;
+  border-color: var(--accent2);
+  color: var(--accent2);
+
 }
-.nav-btn:hover { background: rgba(0,153,255,0.1); }
-.fav-btn {
-  background: transparent; border-color: var(--border); color: var(--text2);
+
+.nav-btn:hover  {
+  background: rgba(0,153,255,0.1);
 }
-.fav-btn:hover { border-color: var(--danger); color: var(--danger); }
-.fav-btn.active { border-color: var(--danger); color: var(--danger); background: rgba(224,92,92,0.08); }
+
+/* お気に入りボタン: 通常はグレー、登録済みは赤 */
+.fav-btn  {
+
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text2);
+
+}
+
+.fav-btn:hover  {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.fav-btn.active  {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(224,92,92,0.08);
+}
 
 /* ===== MODAL ===== */
-.modal-backdrop {
-  position: fixed; inset: 0; z-index: 200;
+/* バックドロップ: 画面全体を覆う半透明オーバーレイ */
+/* モバイルは画面下部から、PC は中央に表示 */
+.modal-backdrop  {
+
+  position: fixed;
+  inset: 0;
+  z-index: 200;
   background: rgba(0,0,0,0.7);
   backdrop-filter: blur(6px);
-  display: flex; align-items: flex-end; justify-content: center;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  /* モバイル: 下部表示 */;
   padding: 20px;
+
 }
-@media (min-width: 600px) {
-  .modal-backdrop { align-items: center; }
+
+@media (min-width: 600px)  {
+
+  /* PC: 中央表示に切り替え */
+  .modal-backdrop  {
+    align-items: center;
+  }
+
 }
-.modal-panel {
+
+/* モーダル本体: 下から滑り上がるアニメーション */
+.modal-panel  {
+
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: 20px 20px 20px 20px;
-  width: 100%; max-width: 520px;
-  max-height: 90vh; overflow-y: auto;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  /* 縦スクロール対応 */;
   padding: 28px;
   position: relative;
   animation: slideUp 0.25s ease;
-}
-@keyframes slideUp { from { transform: translateY(40px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 
-.modal-close {
-  position: absolute; top: 16px; right: 16px;
-  background: var(--bg3); border: 1px solid var(--border);
-  border-radius: 50%; width: 36px; height: 36px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: var(--text2);
+}
+
+/* 下から上にフェードインするアニメーション */
+@keyframes slideUp  {
+  from  {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to  {
+    transform: translateY(0);
+    opacity: 1;
+  }
+
+}
+
+/* 閉じるボタン: 右上に絶対配置 */
+.modal-close  {
+
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text2);
   transition: color 0.2s;
-}
-.modal-close:hover { color: var(--text); }
 
-.modal-hero { padding-bottom: 20px; margin-bottom: 20px; }
-.modal-spot-name { font-size: 22px; font-weight: 800; margin-bottom: 6px; }
-.modal-score { display: flex; align-items: baseline; gap: 6px; }
-.modal-score-num { font-size: 40px; font-weight: 800; line-height: 1; }
-.modal-score-label { font-size: 14px; color: var(--text2); }
-
-.modal-section { margin-bottom: 20px; }
-.modal-section-title { font-size: 13px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: 0.06em; margin-bottom: 8px; }
-.modal-reason { font-size: 15px; line-height: 1.7; color: var(--text); }
-.modal-fish-tags { display: flex; flex-wrap: wrap; gap: 8px; }
-
-.modal-stats {
-  display: grid; grid-template-columns: 1fr 1fr;
-  gap: 12px; margin-bottom: 24px;
 }
-.stat-item {
-  background: var(--bg3); border-radius: var(--radius-sm);
-  padding: 12px; display: flex; align-items: center; gap: 8px;
-}
-.stat-label { font-size: 12px; color: var(--text2); flex: 1; }
-.stat-value { font-size: 15px; font-weight: 700; }
 
-.modal-actions { display: flex; gap: 10px; }
-.btn-nav, .btn-fav {
-  flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px;
-  padding: 12px; border-radius: var(--radius-sm);
-  font-size: 14px; font-weight: 700; cursor: pointer;
-  transition: all 0.2s; border: 1px solid;
+.modal-close:hover  {
+  color: var(--text);
 }
-.btn-nav { background: var(--accent2); color: #fff; border-color: var(--accent2); }
-.btn-nav:hover { opacity: 0.88; }
-.btn-fav { background: transparent; border-color: var(--border); color: var(--text2); }
-.btn-fav:hover { border-color: var(--danger); color: var(--danger); }
-.btn-fav.active { background: rgba(224,92,92,0.1); border-color: var(--danger); color: var(--danger); }
+
+/* ヒーローセクション: スポット名とスコアを大きく表示 */
+.modal-hero  {
+  padding-bottom: 20px;
+  margin-bottom: 20px;
+}
+
+.modal-spot-name  {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.modal-score  {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.modal-score-num  {
+  font-size: 40px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.modal-score-label  {
+  font-size: 14px;
+  color: var(--text2);
+}
+
+/* モーダルセクション: AI コメント・魚種などのブロック */
+.modal-section  {
+  margin-bottom: 20px;
+}
+
+/* セクションタイトル: 小さめの大文字ラベル */
+.modal-section-title  {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 8px;
+}
+
+.modal-reason  {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text);
+}
+
+.modal-fish-tags  {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* スタッツグリッド: 天気・潮汐・距離・費用を2列で表示 */
+.modal-stats  {
+
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 24px;
+
+}
+
+/* 各スタット項目: アイコン + ラベル + 値の横並び */
+.stat-item  {
+
+  background: var(--bg3);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+}
+
+.stat-label  {
+  font-size: 12px;
+  color: var(--text2);
+  flex: 1;
+}
+
+.stat-value  {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+/* モーダルアクション: ナビ・お気に入りボタンを横並び */
+.modal-actions  {
+  display: flex;
+  gap: 10px;
+}
+
+/* ナビ・お気に入りボタン共通スタイル */
+.btn-nav, .btn-fav  {
+
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid;
+
+}
+
+/* ナビボタン: 青い塗りつぶし */
+.btn-nav  {
+  background: var(--accent2);
+  color: #fff;
+  border-color: var(--accent2);
+}
+
+.btn-nav:hover  {
+  opacity: 0.88;
+}
+
+/* お気に入りボタン: 通常はアウトライン、登録済みは赤 */
+.btn-fav  {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text2);
+}
+
+.btn-fav:hover  {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.btn-fav.active  {
+  background: rgba(224,92,92,0.1);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 /* ===== MAP PAGE ===== */
-.map-page { height: calc(100vh - 80px); display: flex; flex-direction: column; }
-.map-container { flex: 1; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--border); }
-.map-info { padding: 8px; min-width: 160px; }
-.map-info strong { display: block; font-size: 14px; margin-bottom: 4px; color: #111; }
-.map-info-score { font-size: 12px; color: #555; }
-.map-info-fish { font-size: 12px; color: #555; margin-bottom: 8px; }
-.map-nav-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 5px 10px; background: #0099ff; color: #fff;
-  border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
+/* 地図ページ: NavBar を除いた残り全高を地図に使用 */
+.map-page  {
+  height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 地図コンテナ: flex で残り高さを全て使用 */
+.map-container  {
+  flex: 1;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+/* InfoWindow 内のスタイル（Google Maps のポップアップ） */
+.map-info  {
+  padding: 8px;
+  min-width: 160px;
+}
+
+.map-info strong  {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: #111;
+}
+
+.map-info-score  {
+  font-size: 12px;
+  color: #555;
+}
+
+.map-info-fish  {
+  font-size: 12px;
+  color: #555;
+  margin-bottom: 8px;
+}
+
+/* InfoWindow 内のナビボタン */
+.map-nav-btn  {
+
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  background: #0099ff;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+
 }
 
 /* ===== SPOTS PAGE ===== */
-.spots-list { display: flex; flex-direction: column; gap: 1px; }
-.spot-row {
-  background: var(--bg2); border-radius: var(--radius-sm);
-  padding: 14px 16px; display: flex; align-items: center; justify-content: space-between;
-  gap: 12px; border: 1px solid var(--border);
-  margin-bottom: 8px;
+.spots-list  {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
-.spot-row-left { display: flex; align-items: center; gap: 12px; flex: 1; }
-.spot-score-bar { width: 4px; height: 36px; border-radius: 4px; flex-shrink: 0; }
-.spot-row-name { font-size: 15px; font-weight: 600; }
-.spot-row-fish { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
-.spot-row-right { display: flex; align-items: center; gap: 12px; }
-.spot-row-score { font-size: 18px; font-weight: 700; }
-.spot-row-score small { font-size: 11px; color: var(--text2); }
+
+/* スポット行: 左側（バー＋名前）と右側（スコア＋ナビ）を両端揃え */
+.spot-row  {
+
+  background: var(--bg2);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+
+}
+
+.spot-row-left  {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+}
+
+/* スコアに応じた色の左端バー（幅4px × 高さ36px） */
+.spot-score-bar  {
+  width: 4px;
+  height: 36px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.spot-row-name  {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.spot-row-fish  {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.spot-row-right  {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.spot-row-score  {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.spot-row-score small  {
+  font-size: 11px;
+  color: var(--text2);
+}
 
 /* ===== EMPTY & LOADING ===== */
-.loading-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px; gap: 16px; color: var(--text2); }
-.loader { width: 36px; height: 36px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
-.empty-state { text-align: center; padding: 60px 20px; color: var(--text2); }
-.empty-hint { font-size: 13px; margin-top: 8px; opacity: 0.7; }
-.error-banner { background: rgba(224,92,92,0.12); border: 1px solid var(--danger); border-radius: var(--radius-sm); padding: 12px 16px; color: var(--danger); font-size: 13px; margin-bottom: 16px; }
+/* ローディングスピナー: 中央揃えで縦積み表示 */
+.loading-state  {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px;
+  gap: 16px;
+  color: var(--text2);
+}
+
+/* スピン回転アニメーション付きのサークルローダー */
+.loader  {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+/* データ0件のときの空状態メッセージ */
+.empty-state  {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text2);
+}
+
+.empty-hint  {
+  font-size: 13px;
+  margin-top: 8px;
+  opacity: 0.7;
+}
+
+/* API エラー時のエラーバナー */
+.error-banner  {
+  background: rgba(224,92,92,0.12);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  color: var(--danger);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
 
 /* ===== UTILITIES ===== */
-.icon-btn {
-  background: transparent; border: 1px solid var(--border);
-  border-radius: var(--radius-sm); width: 36px; height: 36px;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: var(--text2);
+/* アイコンボタン: ナビ・更新など汎用の正方形ボタン */
+.icon-btn  {
+
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--text2);
   transition: all 0.2s;
+
 }
-.icon-btn:hover { border-color: var(--accent); color: var(--accent); }
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+
+.icon-btn:hover  {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* spin クラス: ローディング中の要素に付与して回転させる */
+.spin  {
+  animation: spin 1s linear infinite;
+}
+
+/* 360度回転アニメーション */
+@keyframes spin  {
+  to  {
+    transform: rotate(360deg);
+  }
+
+}
 
 /* ===== RESPONSIVE ===== */
-@media (max-width: 640px) {
-  .main-content { padding: 12px; padding-top: 74px; }
-  .top3-grid { grid-template-columns: 1fr; }
-  .nav-title { display: none; }
-  .modal-panel { padding: 20px; }
-  .modal-stats { grid-template-columns: 1fr 1fr; }
+/* モバイル（640px 以下）向け調整 */
+@media (max-width: 640px)  {
+
+  /* padding-top を NavBar 高さ（74px）に縮小 */
+  .main-content  {
+    padding: 12px;
+    padding-top: 74px;
+  }
+
+  /* TOP3 グリッドを1列に変更 */
+  .top3-grid  {
+    grid-template-columns: 1fr;
+  }
+
+  /* NavBar のアプリ名を非表示にしてアイコンのみ表示 */
+  .nav-title  {
+    display: none;
+  }
+
+  /* モーダルのパディングを縮小 */
+  .modal-panel  {
+    padding: 20px;
+  }
+
+  /* スタッツグリッドは2列を維持 */
+  .modal-stats  {
+    grid-template-columns: 1fr 1fr;
+  }
+
 }

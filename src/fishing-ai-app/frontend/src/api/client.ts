@@ -1,10 +1,6 @@
 /**
- * client.ts
- *
- * API Gateway へのHTTPリクエストを担当するAPIクライアント。
+ * @fileoverview API Gateway へのHTTPリクエストを担当するAPIクライアント。
  * axios インスタンスを共有し、全エンドポイントへのアクセスを提供する。
- *
- * @module client
  */
 
 import axios from "axios";
@@ -14,9 +10,7 @@ import type { Recommendation, Spot, Post, Favorite, BatchStatus } from "../types
  * API Gateway のベースURL。
  * 環境変数 VITE_API_BASE_URL が未設定の場合はプレースホルダーを使用する。
  */
-const BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ||
-  "https://your-api-id.execute-api.ap-northeast-1.amazonaws.com/prod";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || "https://your-api-id.execute-api.ap-northeast-1.amazonaws.com/prod";
 
 /**
  * 共有 axios インスタンス。
@@ -72,16 +66,12 @@ export const getFavorites = async (userId: string): Promise<Favorite[]> => {
 /**
  * お気に入りスポットを追加する。
  *
- * @param {string} userId  - ユーザーID
- * @param {string} spotId  - 追加するスポットID
- * @param {string} [memo]  - メモ（省略可）
+ * @param {string} userId - ユーザーID
+ * @param {string} spotId - 追加するスポットID
+ * @param {string} [memo] - メモ（省略可）
  * @returns {Promise<void>}
  */
-export const addFavorite = async (
-  userId: string,
-  spotId: string,
-  memo?: string
-): Promise<void> => {
+export const addFavorite = async (userId: string, spotId: string, memo?: string): Promise<void> => {
   await api.post("/favorites", { userId, spotId, memo });
 };
 
@@ -92,10 +82,7 @@ export const addFavorite = async (
  * @param {string} spotId - 削除するスポットID
  * @returns {Promise<void>}
  */
-export const removeFavorite = async (
-  userId: string,
-  spotId: string
-): Promise<void> => {
+export const removeFavorite = async (userId: string, spotId: string): Promise<void> => {
   await api.delete(`/favorites/${spotId}?userId=${userId}`);
 };
 
