@@ -1,3 +1,5 @@
 .vscode/
 PythonWorkspace/
 tests/
+node_modules/
+src/**/node_modules/
