@@ -98,5 +98,11 @@ export const removeFavorite = async (userId: string, spotId: string): Promise<vo
  */
 export const runAiBatch = async (): Promise<BatchStatus> => {
   const res = await api.post("/admin/run-ai-batch");
-  return JSON.parse(res.data.body);
+
+  const data =
+    typeof res.data?.body === "string"
+      ? JSON.parse(res.data.body)
+      : res.data;
+
+  return data;
 };
