@@ -97,6 +97,6 @@ export const removeFavorite = async (userId: string, spotId: string): Promise<vo
  * @returns {Promise<BatchStatus>} バッチ処理の実行結果
  */
 export const runAiBatch = async (): Promise<BatchStatus> => {
-  const { data } = await api.post("/admin/run-ai-batch");
-  return data;
+  const res = await api.post("/admin/run-ai-batch");
+  return JSON.parse(res.data.body);
 };
