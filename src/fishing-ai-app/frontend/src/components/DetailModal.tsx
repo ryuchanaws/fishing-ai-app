@@ -104,7 +104,7 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
           <div className="stat-item">
             <Banknote size={18} />
             <span className="stat-label">費用</span>
-            <span className="stat-value">{rec.cost === 0 ? "無料" : `¥${rec.cost.toLocaleString()}`}</span>
+            <span className="stat-value">{!rec.cost || rec.cost === 0 ? "無料" : `¥${rec.cost.toLocaleString()}`}</span>
           </div>
         </div>
 

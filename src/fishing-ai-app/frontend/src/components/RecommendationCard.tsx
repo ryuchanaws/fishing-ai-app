@@ -98,8 +98,8 @@ export const RecommendationCard = ({
       <div className="card-meta">
         <span>{getWeatherIcon(rec.weatherScore)} 天気 {Math.round(rec.weatherScore)}</span>
         <span>{getTideIcon(rec.tideScore)} 潮汐 {Math.round(rec.tideScore)}</span>
-        <span>📍 {(rec.distance ?? 0).toFixed(1)}km</span>
-        <span>💰 {rec.cost === 0 ? "無料" : `¥${(rec.cost ?? 0).toLocaleString()}`}</span>
+        <span>📍 {rec.distance.toFixed(1)}km</span>
+        <span>💰 {!rec.cost || rec.cost === 0 ? "無料" : `¥${rec.cost.toLocaleString()}`}</span>
       </div>
 
       {/* アクションボタン: クリックイベントがカード全体に伝播しないよう stopPropagation */}
