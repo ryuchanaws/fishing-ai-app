@@ -89,17 +89,17 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
           <div className="stat-item">
             <Cloud size={18} />
             <span className="stat-label">天気スコア</span>
-            <span className="stat-value">{Math.round(rec.weatherScore)}</span>
+            <span className="stat-value">{Math.round(rec.weatherScore ?? 0)}</span>
           </div>
           <div className="stat-item">
             <Waves size={18} />
             <span className="stat-label">潮汐スコア</span>
-            <span className="stat-value">{Math.round(rec.tideScore)}</span>
+            <span className="stat-value">{Math.round(rec.tideScore ?? 0)}</span>
           </div>
           <div className="stat-item">
             <MapPin size={18} />
             <span className="stat-label">距離</span>
-            <span className="stat-value">{rec.distance.toFixed(1)}km</span>
+            <span className="stat-value">{rec.distance != null ? rec.distance.toFixed(1) : "0.0"}km</span>
           </div>
           <div className="stat-item">
             <Banknote size={18} />
