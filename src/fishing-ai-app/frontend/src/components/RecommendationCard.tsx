@@ -96,8 +96,8 @@ export const RecommendationCard = ({
 
       {/* メタ情報: 天気・潮汐・距離・費用 */}
       <div className="card-meta">
-        <span>{getWeatherIcon(rec.weatherScore)} 天気 {Math.round(rec.weatherScore)}</span>
-        <span>{getTideIcon(rec.tideScore)} 潮汐 {Math.round(rec.tideScore)}</span>
+        <span>{getWeatherIcon(rec.weatherScore ?? 0)} 天気 {Math.round(rec.weatherScore ?? 0)}</span>
+        <span>{getTideIcon(rec.tideScore ?? 0)} 潮汐 {Math.round(rec.tideScore ?? 0)}</span>
         <span>📍 {rec.distance != null ? rec.distance.toFixed(1) : "0.0"}km</span>
         <span>💰 {!rec.cost || rec.cost === 0 ? "無料" : `¥${rec.cost.toLocaleString()}`}</span>
       </div>
