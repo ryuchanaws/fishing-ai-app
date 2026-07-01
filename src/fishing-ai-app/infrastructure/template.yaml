@@ -40,11 +40,11 @@ Globals:
         RECOMMENDATIONS_TABLE: !Ref RecommendationsTable
         FAVORITES_TABLE: !Ref FavoritesTable
         POSTS_TABLE: !Ref PostsTable
-        # Claude API キーを SSM パラメータストアから動的に取得
-        # キーは手順1で登録した /fishing-ai/claude-api-key を参照
-        CLAUDE_API_KEY: !Sub "{{resolve:ssm:/fishing-ai/claude-api-key}}"
+        # Gemini API キーを SSM パラメータストアから動的に取得
+        # キーは手順1で登録した /fishing-ai/gemini-api-key を参照
+        GEMINI_API_KEY: "/fishing-ai/gemini-api-key"
         # 手動バッチ実行 Lambda から呼び出し先 Lambda 名を参照するために設定
-        BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
+       #BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
 
   Api:
     # CORS 設定（フロントエンドの S3/CloudFront からのアクセスを許可）
@@ -119,7 +119,7 @@ Resources:
     Properties:
       FunctionName: getRecommendationsHandler
       Handler: handlers.get_recommendations      # handlers.py の get_recommendations 関数
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref RecommendationsTable }
         - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
@@ -136,7 +136,7 @@ Resources:
     Properties:
       FunctionName: getSpotsHandler
       Handler: handlers.get_spots
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
       Events:
@@ -152,7 +152,7 @@ Resources:
     Properties:
       FunctionName: getPostsHandler
       Handler: handlers.get_posts
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref PostsTable }
       Events:
@@ -168,7 +168,7 @@ Resources:
     Properties:
       FunctionName: getFavoritesHandler
       Handler: handlers.get_favorites
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref FavoritesTable }
         - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
@@ -185,7 +185,7 @@ Resources:
     Properties:
       FunctionName: createFavoriteHandler
       Handler: handlers.create_favorite
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         # CrudPolicy = Create / Read / Update / Delete 全権限
         - DynamoDBCrudPolicy: { TableName: !Ref FavoritesTable }
@@ -202,7 +202,7 @@ Resources:
     Properties:
       FunctionName: deleteFavoriteHandler
       Handler: handlers.delete_favorite
-      CodeUri: lambda/api/
+      CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref FavoritesTable }
       Events:
@@ -216,20 +216,24 @@ Resources:
   # Lambda 関数定義（バッチ系）
   # ==============================================================
 
-  # 全スポットのスコア計算 + Claude API による推薦理由生成バッチ
-  # Timeout: 300秒（スポット数 x Claude API 呼び出し時間を考慮）
+  # 全スポットのスコア計算 + Gemini API による推薦理由生成バッチ
+  # Timeout: 300秒（スポット数 x Gemini API 呼び出し時間を考慮）
   # MemorySize: 512MB（大きめに設定してコールドスタートを抑制）
   GenerateSpotScoreBatch:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: generateSpotScoreBatch
       Handler: generate_score.handler
-      CodeUri: lambda/batch/
+      CodeUri: ../backend/lambda/batch/
       Timeout: 300     # API系のデフォルト60秒より長く設定
       MemorySize: 512  # API系のデフォルト256MBより大きく設定
       Policies:
-        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
-        - DynamoDBCrudPolicy: { TableName: !Ref RecommendationsTable }
+        - SSMParameterReadPolicy:
+            ParameterName: /fishing-ai/gemini-api-key
+        - DynamoDBReadPolicy:
+            TableName: !Ref SpotsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RecommendationsTable
       Events:
         # EventBridge スケジュール（毎日 AM6:00 JST = 21:00 UTC に自動実行）
         # cron 形式: cron(分 時 日 月 曜日 年)
@@ -247,7 +251,7 @@ Resources:
     Properties:
       FunctionName: adminRunAiBatch
       Handler: admin_trigger.handler
-      CodeUri: lambda/batch/
+      CodeUri: ../backend/lambda/batch/
       Timeout: 330
       Policies:
         # GenerateSpotScoreBatch の invoke 権限のみ付与（最小権限の原則）
