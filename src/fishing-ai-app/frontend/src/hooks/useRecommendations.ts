@@ -51,11 +51,12 @@ export const useRecommendations = () => {
 
   /**
    * ポーリング間隔（ミリ秒）と最大試行回数。
-   * Gemini API呼び出しを含むバッチ処理は5スポットで30秒前後かかるため、
-   * 3秒間隔 × 20回 = 最大60秒間ポーリングする。
+   * 2026-07-24: 「AI分析を実行」は新規スポット探索（discover_spots.run_discovery）も
+   * 兼ねるようになり、Gemini APIを使ったスコア計算と合わせて所要時間が伸びたため、
+   * 3秒間隔 × 30回 = 最大90秒間ポーリングする（従来は60秒）。
    */
   const POLL_INTERVAL_MS = 3000;
-  const MAX_POLL_ATTEMPTS = 20;
+  const MAX_POLL_ATTEMPTS = 30;
 
   /**
    * AI バッチを非同期起動し、完了をポーリングで検知する。

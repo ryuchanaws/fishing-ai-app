@@ -298,7 +298,9 @@ Resources:
   # ==============================================================
 
   # 全スポットのスコア計算 + Gemini API による推薦理由生成バッチ
-  # Timeout: 300秒（スポット数 x Gemini API 呼び出し時間を考慮）
+  # 2026-07-24: 新規スポット探索（discover_spots.run_discovery）もこの中で実行するようになったため
+  # （「AI分析を実行」が新スポット探索も兼ねる）、Timeoutを300→420秒に拡張し、
+  # SpotsTableへの書き込み権限（discover_spots用）とPlaces APIキーの読み取り権限を追加している
   # MemorySize: 512MB（大きめに設定してコールドスタートを抑制）
   GenerateSpotScoreBatch:
     Type: AWS::Serverless::Function
@@ -306,7 +308,7 @@ Resources:
       FunctionName: generateSpotScoreBatch
       Handler: generate_score.handler
       CodeUri: ../backend/lambda/batch/
-      Timeout: 300     # API系のデフォルト60秒より長く設定
+      Timeout: 420     # 新スポット探索 + 全スポットのスコア計算を合わせた時間を考慮
       MemorySize: 512  # API系のデフォルト256MBより大きく設定
       Policies:
         - SSMParameterReadPolicy:
@@ -315,7 +317,11 @@ Resources:
             # 二重スラッシュのARNになり実際のパラメータと一致しなくなる（AccessDenied の原因）。
             # そのため先頭のスラッシュを付けない。
             ParameterName: fishing-ai/gemini-api-key
-        - DynamoDBReadPolicy:
+        - SSMParameterReadPolicy:
+            # discover_spots.run_discovery が使う Google Places API キー
+            ParameterName: fishing-ai/google-places-api-key
+        - DynamoDBCrudPolicy:
+            # run_discovery が新規スポットを書き込むため Read のみでは不足（2026-07-24変更）
             TableName: !Ref SpotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref RecommendationsTable
@@ -329,8 +335,8 @@ Resources:
             Enabled: true
 
   # POST /admin/run-ai-batch — フロントの「AI実行ボタン」から手動でバッチを起動する
-  # GenerateSpotScoreBatch を同期呼び出し（RequestResponse）するため
-  # Timeout は GenerateSpotScoreBatch の 300秒 + バッファの 330秒に設定
+  # GenerateSpotScoreBatch を非同期呼び出し（Event）するため、この関数自体はすぐ返る。
+  # Timeout はやや余裕を持たせて330秒としているが、実際は数秒で完了する
   AdminRunAiBatchFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -353,6 +359,11 @@ Resources:
 
   # 新規釣りスポット候補を Google Places API で探索し、Spots テーブルに追加するバッチ
   # 既存スポットとの重複（緯度経度が近い）は除外する
+  #
+  # 2026-07-24: 全国探索の自動スケジュールは廃止した（GenerateSpotScoreBatch が
+  # 「AI分析を実行」のたびに位置指定なしの探索も行うようになったため、週次の自動探索は冗長）。
+  # この関数は POST /admin/run-spot-discovery（フロントの「現在地から探す」ボタン）専用として、
+  # ユーザーの現在地(lat/lng)を指定した近傍探索のためだけに呼び出される
   DiscoverSpotsBatch:
     Type: AWS::Serverless::Function
     Properties:
@@ -371,15 +382,9 @@ Resources:
             ParameterName: fishing-ai/gemini-api-key
         - DynamoDBCrudPolicy:
             TableName: !Ref SpotsTable
-      Events:
-        # EventBridge スケジュール（毎週月曜 AM6:00 JST = 前日21:00 UTC に自動実行）
-        Schedule:
-          Type: Schedule
-          Properties:
-            Schedule: cron(0 21 ? * SUN *)
-            Enabled: true
 
-  # POST /admin/run-spot-discovery — フロントから手動で DiscoverSpotsBatch を起動する
+  # POST /admin/run-spot-discovery — フロントの「現在地から探す」ボタンから
+  # DiscoverSpotsBatch を起動する（リクエストボディの lat/lng をそのまま転送する）。
   # admin_trigger.py は BATCH_FUNCTION_NAME 環境変数で呼び出し先を切り替えられる汎用実装のため
   # AdminRunAiBatchFunction と同じハンドラコードを異なる環境変数で再利用する
   AdminRunSpotDiscoveryFunction:

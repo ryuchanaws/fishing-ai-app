@@ -9,3 +9,5 @@ src/**/.aws-sam/
 src/**/.venv/
 # フロントエンドの build 成果物
 src/**/dist/
+# Python バイトコードキャッシュ（ローカルでのimport確認等で生成される）
+src/**/__pycache__/

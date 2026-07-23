@@ -59,8 +59,8 @@ th { background:#eef3f8; }
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
 <tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
 <tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch）</td></tr>
-<tr><td>discoverSpotsBatch【2026-07-24 追加】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加</td><td>EventBridge（毎週日曜AM6:00 JST）／adminRunSpotDiscovery経由</td></tr>
-<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery）</td></tr>
+<tr><td>discoverSpotsBatch【2026-07-24 追加、同日中に役割変更】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加</td><td>adminRunSpotDiscovery経由のみ（自動スケジュールは廃止）</td></tr>
+<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery）</td></tr>
 </table>
 
 <div class="box">
@@ -73,12 +73,23 @@ th { background:#eef3f8; }
 </div>
 
 <div class="box">
-【2026-07-24 実装更新】これまで generateSpotScoreBatch はSpotsテーブルの既存スポットをre-scoreするのみで、
+【2026-07-24 実装更新・午前】これまで generateSpotScoreBatch はSpotsテーブルの既存スポットをre-scoreするのみで、
 新規スポットを増やす手段が無かった（seed_data.pyの手動編集・再実行のみ）。discoverSpotsBatch を追加し、
 Google Places API のText Search（実在POIデータ）で新規候補を探索、既存スポットと300m以内なら重複除外した上で
 Spotsテーブルへ自動追加するようにした。想定される魚種はGemini APIで地名から推測するが、
 座標・名称などの実在性に関わる情報はPlaces APIの結果のみを採用し、LLMには生成させない
 （座標のハルシネーションを避けるため）。
+</div>
+
+<div class="box">
+【2026-07-24 実装更新・同日中に再変更】ユーザーからのフィードバックにより、「新スポットを探す」を独立ボタンのまま
+残すのではなく、<b>generateSpotScoreBatch が discover_spots.run_discovery() を内部で呼び出す形に統合</b>した。
+「AI分析を実行」ボタンを押すたびに (a) 位置指定なしの全国向け探索 → (b) 全スポットのスコア計算、の順に実行される。
+これに伴い discoverSpotsBatch の週次EventBridgeスケジュールは冗長になったため廃止し、この関数は
+「現在地から新スポットを探す」ボタン（ユーザーの現在地に絞った近傍探索専用、半径15km、スコア計算はしない）
+専用として存続させている。<br><br>
+実装上は generate_score.py と discover_spots.py の相互import（循環import）を避けるため、
+共有ヘルパー（DynamoDB/SSMアクセス等）を新設の batch_common.py に切り出し、両者がそこから import する構成にした。
 </div>
 
 ---
@@ -181,19 +192,23 @@ generateSpotScoreBatch（5スポット分）はこれを超えることがある
 GET /recommendations を定期的にポーリングして行う。
 </div>
 
-<h3>discoverSpotsBatch【2026-07-24 追加】</h3>
+<h3>discover_spots.run_discovery()【2026-07-24 追加】</h3>
 
 <div class="box">
-目的：新規釣りスポット候補をGoogle Places APIで探索し、Spotsテーブルに追加する
+目的：新規釣りスポット候補をGoogle Places APIで探索し、Spotsテーブルに追加する中核ロジック。
+generateSpotScoreBatch のhandler冒頭（位置指定なし）と、discoverSpotsBatch のhandler
+（「現在地から新スポットを探す」ボタン経由、位置指定あり）の両方から呼ばれる共通関数。
 </div>
 
 <h4>処理</h4>
 <pre>
 Spots全件取得（重複判定用）
- → Google Places API Text Search（"釣り 堤防" 等の複数クエリ）
+ → Google Places API Text Search
+    ・位置指定なし: "釣り 堤防" 等の全国向け複数クエリ
+    ・位置指定あり: "釣り" 1クエリ + location/radius(15km)パラメータで近傍に絞り込み
  → 既存スポットと緯度経度がhaversine距離300m以内なら重複として除外
  → Gemini APIで地名・住所から想定される魚種を推測（失敗時は汎用デフォルト）
- → 基準地点（東京駅）からのdistanceKmを算出
+ → 基準地点（位置指定時はその座標、なければ東京駅）からのdistanceKmを算出
  → Spotsテーブルへput_item
 </pre>
 
@@ -201,6 +216,12 @@ Spots全件取得（重複判定用）
 座標・スポット名などの実在性に関わる情報はGoogle Places APIの結果のみを採用し、
 LLM（Gemini）には生成させない（存在しない場所をAIが作り出すハルシネーションを避けるため）。
 Geminiは魚種の推測という、実在性に影響しない付随情報の生成にのみ用いる。
+</div>
+
+<div class="box">
+generate_score.py が discover_spots.py の run_discovery() を直接importして呼び出すため、
+逆方向のimport（discover_spots→generate_score）は循環importになり不可能。共有ヘルパー
+（DynamoDB/SSMアクセス・HTTP GET）は batch_common.py に切り出し、両モジュールがそこから import する。
 </div>
 
 <h3>presignUploadHandler / updateSpotImageHandler / createPostHandler【2026-07-24 追加】</h3>

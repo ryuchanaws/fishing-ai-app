@@ -7,6 +7,9 @@ EventBridge スケジュール（毎日AM6:00 JST）または
 POST /admin/run-ai-batch による手動実行で起動される。
 
 処理フロー:
+    0. discover_spots.run_discovery() で新規スポット候補を探索しSpotsテーブルに追加
+       （2026-07-24追加。新規に見つかったスポットもこの回のスコア計算対象に含めるため、
+        1のSpots取得より前に実行する。失敗してもスコア計算自体は継続する）
     1. Spots テーブルから全スポットを取得
     2. 各スポットの天気・潮汐スコアを取得（外部API or シミュレーション）
     3. ルールベースのスコア式でスコアを計算
@@ -22,14 +25,14 @@ Requirements:
 import json
 import os
 import random
-import urllib.request
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
 
-import boto3
 import google.generativeai as genai
-from botocore.exceptions import ClientError
+
+from batch_common import get_table as _get_table, http_get_json as _http_get_json, get_ssm_parameter
+from discover_spots import run_discovery
 
 # 天気・海面水位（潮汐）データの取得元。
 # Open-Meteo は APIキー登録不要・無料（非商用）で、
@@ -37,19 +40,6 @@ from botocore.exceptions import ClientError
 # https://open-meteo.com/
 OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine"
-
-# 外部API呼び出しのタイムアウト（秒）。
-# バッチ全体のLambdaタイムアウト(300秒)を圧迫しないよう短めに設定。
-EXTERNAL_API_TIMEOUT_SEC = 5
-
-# DynamoDB リソースを初期化
-# リージョンは環境変数から取得（デフォルト: 東京）
-dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))  # type: ignore[attr-defined]
-
-ssm = boto3.client(
-    "ssm",
-    region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
-)
 
 # 環境変数からテーブル名・SSMパラメータ名を取得
 SPOTS_TABLE           = os.environ.get("SPOTS_TABLE", "fishing-spots")
@@ -74,32 +64,9 @@ CORS = {
 }
 
 
-def _get_table(name: str) -> Any:
-    """DynamoDB テーブルオブジェクトを取得する。
-
-    Pylance の型スタブ制限による誤検知を1箇所に集約するためのヘルパー関数。
-
-    Args:
-        name (str): DynamoDB テーブル名
-
-    Returns:
-        Any: DynamoDB テーブルオブジェクト
-    """
-    return dynamodb.Table(name)  # type: ignore[attr-defined]
-
 def _get_gemini_api_key() -> str:
     """SSM Parameter StoreからGemini APIキーを取得する。"""
-
-    try:
-        response = ssm.get_parameter(
-            Name=GEMINI_API_KEY,
-            WithDecryption=True,
-        )
-        return response["Parameter"]["Value"]
-
-    except ClientError as e:
-        print(f"SSM get_parameter error: {e}")
-        return ""
+    return get_ssm_parameter(GEMINI_API_KEY)
 
 # ─── Score formula ───────────────────────────────────────────────────
 def calc_score(fish_prob: float, weather: float, tide: float,
@@ -139,27 +106,7 @@ def calc_score(fish_prob: float, weather: float, tide: float,
 
 
 # ─── Weather/tide via Open-Meteo（無料・APIキー不要） ──────────────────
-def _http_get_json(url: str, params: dict[str, str]) -> dict[str, Any]:
-    """指定URLにGETリクエストを送り、JSONレスポンスをdictで返す。
-
-    追加の依存パッケージ（requests等）を避けるため標準ライブラリの
-    urllib.request のみで実装している。
-
-    Args:
-        url (str): リクエスト先URL（クエリなし）
-        params (dict[str, str]): クエリパラメータ
-
-    Returns:
-        dict[str, Any]: パース済みJSONレスポンス
-
-    Raises:
-        urllib.error.URLError: 通信エラー・タイムアウト時
-        json.JSONDecodeError: レスポンスがJSONとして不正な場合
-    """
-    query = "&".join(f"{k}={v}" for k, v in params.items())
-    with urllib.request.urlopen(f"{url}?{query}", timeout=EXTERNAL_API_TIMEOUT_SEC) as resp:
-        return json.loads(resp.read())
-
+# _http_get_json は batch_common からの import（モジュール先頭）を使用する
 
 def fetch_weather_score(lat: float, lng: float) -> float:
     """指定座標の現在の天気スコアを Open-Meteo API から取得する。
@@ -365,6 +312,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
                 }
     """
     print("generateSpotScoreBatch started")
+
+    # 新規スポット候補の探索を先に行い、この回のスコア計算に含める
+    # （2026-07-24追加。「AI分析を実行」が新スポット探索も兼ねるようにするため）
+    # 失敗してもスコア計算自体は継続させる
+    try:
+        discovery_result = run_discovery()
+        print(f"  Discovery: {discovery_result}")
+    except Exception as e:
+        print(f"Spot discovery error (continuing with scoring): {e}")
 
     spots_table = _get_table(SPOTS_TABLE)
     rec_table   = _get_table(RECOMMENDATIONS_TABLE)

@@ -7,10 +7,13 @@ POST /admin/run-ai-batch のハンドラー。
 generateSpotScoreBatch Lambda を非同期に invoke してすぐに応答を返す。
 
 処理フロー:
-    1. フロントエンドから POST /admin/run-ai-batch を受信
-    2. generateSpotScoreBatch Lambda を Event（非同期）で invoke
+    1. フロントエンドから POST /admin/run-ai-batch （または /admin/run-spot-discovery）を受信
+    2. 呼び出し先 Lambda（BATCH_FUNCTION_NAME環境変数で切り替え）を Event（非同期）で invoke
+       このときリクエストボディをそのまま呼び出し先の event としてそのまま渡す
+       （例: 「現在地から探す」ボタンから { lat, lng } が渡された場合、discoverSpotsBatch の
+        event.lat / event.lng としてそのまま受け取れる）
     3. 呼び出しを受け付けた旨を即座にフロントエンドへ返却
-    4. フロントエンドは GET /recommendations をポーリングして完了を検知する
+    4. フロントエンドは GET /recommendations をポーリングして完了を検知する（AI分析実行時のみ）
 
 Note:
     以前は InvocationType="RequestResponse" で同期呼び出しし、
@@ -77,11 +80,15 @@ def handler(event, context):
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
     try:
-        # generateSpotScoreBatch を非同期呼び出し（応答を待たずに起動だけ行う）
+        # リクエストボディをそのまま呼び出し先Lambdaのeventとして転送する
+        # （「現在地から探す」ボタンの lat/lng など、呼び出し先が使うパラメータを素通しする）
+        payload = event.get("body") or "{}"
+
+        # 非同期呼び出し（応答を待たずに起動だけ行う）
         lambda_client.invoke(
             FunctionName=BATCH_FUNCTION,
             InvocationType="Event",
-            Payload=json.dumps({}),
+            Payload=payload,
         )
         body = {
             "status": "started",

@@ -102,16 +102,21 @@ export const runAiBatch = async (): Promise<BatchStatus> => {
 };
 
 /**
- * 新規釣りスポット候補の自動探索バッチを非同期に起動する。
+ * 現在地周辺の新規釣りスポット候補の探索バッチを非同期に起動する。
  *
  * POST /admin/run-spot-discovery を呼び出し、Google Places API を使った
  * 新規スポット探索バッチを起動する。runAiBatch 同様、完了は待たずに
  * 起動を受け付けた時点で即座に返る。
+ * （全国向けの探索は「AI分析を実行」= runAiBatch のたびに自動で行われるため、
+ * こちらは現在地周辺に絞った探索専用）
  *
+ * @param {object} position - ユーザーの現在地
+ * @param {number} position.lat - 緯度
+ * @param {number} position.lng - 経度
  * @returns {Promise<BatchStatus>} 起動受付結果（status: "started", startedAt を含む）
  */
-export const runSpotDiscovery = async (): Promise<BatchStatus> => {
-  const { data } = await api.post("/admin/run-spot-discovery");
+export const runSpotDiscovery = async (position: { lat: number; lng: number }): Promise<BatchStatus> => {
+  const { data } = await api.post("/admin/run-spot-discovery", position);
   return data;
 };
 

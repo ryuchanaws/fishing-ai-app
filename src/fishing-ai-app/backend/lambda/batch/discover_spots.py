@@ -2,27 +2,24 @@
 discover_spots.py
 
 Google Places API を使って新しい釣りスポット候補を探索し、
-Spots テーブルに自動追加するバッチ Lambda。
+Spots テーブルに自動追加するバッチ処理。
 
-EventBridge スケジュール（毎週日曜 AM6:00 JST）または
-POST /admin/run-spot-discovery による手動実行で起動される。
+run_discovery() が中核ロジックで、2つの経路から呼ばれる:
+    1. generate_score.py の handler（「AI分析を実行」）から、位置指定なしで毎回呼ばれる
+       （日本国内を広くカバーする固定キーワード検索）
+    2. POST /admin/run-spot-discovery（フロントの「現在地から探す」ボタン）から、
+       ユーザーの現在地（lat/lng）を指定して呼ばれる（現在地周辺に絞った検索）
 
 背景:
-    generateSpotScoreBatch は既存の Spots テーブルの中身を毎回re-scoreする
-    だけで、新しいスポットを増やすことはない（スポット候補の追加は本バッチの役目）。
-    実在の場所データを使うため、LLMにスポット名や座標を直接生成させるのではなく、
-    Google Places API のテキスト検索結果（実POIデータ）のみを候補として採用する。
+    generateSpotScoreBatch は元々 Spots テーブルの中身を毎回re-scoreするだけで、
+    新しいスポットを増やす手段がなかった。実在の場所データを使うため、
+    LLMにスポット名や座標を直接生成させるのではなく、Google Places API の
+    テキスト検索結果（実POIデータ）のみを候補として採用する。
     Gemini は座標や実在性に関わらない付随情報（想定される魚種）の推測にのみ使う。
-
-処理フロー:
-    1. Google Places API Text Search で「釣り 堤防 波止」等のキーワード検索
-    2. 既存 Spots テーブルの全件と緯度経度を比較し、近傍（300m以内）の重複候補を除外
-    3. 新規候補ごとに Gemini で想定される魚種を推測（失敗時は汎用デフォルト）
-    4. 基準地点（東京駅）からの距離を算出し、Spots テーブルへ put_item
 
 Requirements:
     - 環境変数 SPOTS_TABLE が設定済みであること
-    - SSM パラメータ fishing-ai/google-places-api-key が登録済みであること
+    - SSM パラメータ /fishing-ai/google-places-api-key が登録済みであること
     - Lambda 実行ロールに SSM 読み取り・DynamoDB 読み書き権限があること
 """
 
@@ -30,37 +27,33 @@ import json
 import os
 import math
 import random
-import urllib.parse
 from decimal import Decimal
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import quote
 
-from botocore.exceptions import ClientError
+import google.generativeai as genai
 
-# 同じ CodeUri (backend/lambda/batch/) 内の generate_score.py が持つ
-# ヘルパーをそのまま再利用する（HTTP GET・SSM取得・Gemini呼び出し）
-from generate_score import _http_get_json, _get_table, ssm, genai
+from batch_common import http_get_json, get_table, get_ssm_parameter
 
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 
-# Google Places API キーの SSM パラメータ名。
-# 実際の SSM パラメータ名（ssm.get_parameter の Name）は階層型（"/"を含む）の場合
-# 先頭にスラッシュが必須（AWSの仕様。無いと "must be a fully qualified name" エラーになる）。
-# 一方 template.yaml の SSMParameterReadPolicy.ParameterName は逆に先頭スラッシュなしが正しい
-# （SAM側が "parameter/${ParameterName}" として自動でスラッシュを補うため、ここでも付けると
-# 二重スラッシュのARNになりAccessDeniedになる。generate_score.py の GEMINI_API_KEY と同じ注意点）
+# SSMパラメータ名は "/"を含む階層型のため先頭スラッシュ必須（AWSの仕様）
 GOOGLE_PLACES_API_KEY_PARAM = "/fishing-ai/google-places-api-key"
-# Gemini API キーは generate_score.py と同じパラメータを共有する
 GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
 
 SPOTS_TABLE = os.environ.get("SPOTS_TABLE", "fishing-spots")
 
-# 検索キーワード（複数投げて候補の網羅性を上げる）
-SEARCH_QUERIES = ["釣り 堤防", "釣り 波止", "釣り公園"]
+# 位置指定なし（全国探索）時の検索キーワード
+NATIONWIDE_QUERIES = ["釣り 堤防", "釣り 波止", "釣り公園"]
+# 現在地指定あり（近傍探索）時の検索キーワード。位置バイアスで絞り込むためクエリは単純でよい
+NEARBY_QUERY = "釣り"
+# 現在地指定時の検索半径（メートル）
+NEARBY_RADIUS_M = 15000
 
-# 基準地点（東京駅）。distanceKm の算出に使用。フロントの MapPage.tsx の
-# DEFAULT_CENTER と一致させている
-BASE_LAT = 35.681
-BASE_LNG = 139.767
+# 基準地点（東京駅）。位置指定なしの場合の distanceKm 算出に使用。
+# フロントの MapPage.tsx の DEFAULT_CENTER と一致させている
+DEFAULT_BASE_LAT = 35.681
+DEFAULT_BASE_LNG = 139.767
 
 # 重複とみなす距離のしきい値（メートル）
 DUPLICATE_THRESHOLD_M = 300
@@ -70,26 +63,6 @@ CORS = {
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
 }
-
-
-def _get_places_api_key() -> str:
-    """SSM Parameter StoreからGoogle Places APIキーを取得する。"""
-    try:
-        response = ssm.get_parameter(Name=GOOGLE_PLACES_API_KEY_PARAM, WithDecryption=True)
-        return response["Parameter"]["Value"]
-    except ClientError as e:
-        print(f"SSM get_parameter error (places key): {e}")
-        return ""
-
-
-def _get_gemini_api_key() -> str:
-    """SSM Parameter StoreからGemini APIキーを取得する（generate_score.pyと同一パラメータ）。"""
-    try:
-        response = ssm.get_parameter(Name=GEMINI_API_KEY_PARAM, WithDecryption=True)
-        return response["Parameter"]["Value"]
-    except ClientError as e:
-        print(f"SSM get_parameter error (gemini key): {e}")
-        return ""
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -102,27 +75,33 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-def search_places(query: str, api_key: str) -> list[dict[str, Any]]:
+def search_places(query: str, api_key: str, location_bias: Optional[dict[str, float]] = None) -> list[dict[str, Any]]:
     """Google Places API Text Search で候補地点を検索する。
 
     Args:
-        query   (str): 検索クエリ（例: "釣り 堤防"）
-        api_key (str): Google Places API キー
+        query         (str): 検索クエリ（例: "釣り 堤防"）
+        api_key       (str): Google Places API キー
+        location_bias (dict, optional): {"lat": ..., "lng": ...} が指定された場合、
+            NEARBY_RADIUS_M 以内の近傍検索として絞り込む
 
     Returns:
         list[dict[str, Any]]: 検索結果（name / lat / lng / address を含む辞書のリスト）。
             APIエラー時は空リストを返しバッチ全体は継続させる。
     """
     try:
-        # _http_get_json は値を "&".join(f"{k}={v}") でそのまま連結する（内部でURLエンコードしない
-        # generate_score.py と同じ挙動）ため、日本語クエリはここで事前に percent-encode する
+        # http_get_json は値をそのまま連結する（URLエンコードしない）ため、
+        # 日本語クエリはここで事前に percent-encode する
         params = {
-            "query": urllib.parse.quote(query),
+            "query": quote(query),
             "region": "jp",
             "language": "ja",
             "key": api_key,
         }
-        data = _http_get_json(PLACES_TEXT_SEARCH_URL, params)
+        if location_bias:
+            params["location"] = f"{location_bias['lat']},{location_bias['lng']}"
+            params["radius"] = str(NEARBY_RADIUS_M)
+
+        data = http_get_json(PLACES_TEXT_SEARCH_URL, params)
         if data.get("status") not in ("OK", "ZERO_RESULTS"):
             print(f"Places API non-OK status for '{query}': {data.get('status')}")
             return []
@@ -177,48 +156,41 @@ def guess_fish_types(spot_name: str, address: str, api_key: str) -> list[str]:
         return default_fish
 
 
-def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """Google Places API で新規釣りスポット候補を探索し、Spots テーブルに追加する。
+def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str, Any]:
+    """新規釣りスポット候補を探索し、Spots テーブルに追加する中核ロジック。
 
+    generate_score.py の handler（位置指定なし）と、
+    POST /admin/run-spot-discovery（現在地指定あり）の両方から呼ばれる。
     既存スポットと近傍（300m以内）の候補は重複として除外する。
 
     Args:
-        event   (dict[str, Any]): Lambda イベントオブジェクト（内容は不使用）
-        context (Any): Lambda コンテキストオブジェクト
+        location_bias (dict, optional): {"lat": ..., "lng": ...}。
+            指定時は現在地周辺（NEARBY_RADIUS_M以内）に絞った検索を行う。
+            未指定時は全国向けの固定キーワードで検索する。
 
     Returns:
-        dict[str, Any]:
-            成功時 200:
-                {
-                    "status": "completed",
-                    "addedCount": int,   # 新規追加したスポット数
-                    "skippedCount": int  # 重複として除外した数
-                }
-            Places APIキー未設定時 200:
-                {"status": "skipped", "message": "..."}
+        dict[str, Any]: {"status": "completed"|"skipped", "addedCount": int, "skippedCount": int, "message"?: str}
     """
-    print("discoverSpotsBatch started")
-
-    places_key = _get_places_api_key()
+    places_key = get_ssm_parameter(GOOGLE_PLACES_API_KEY_PARAM)
     if not places_key:
-        return {
-            "statusCode": 200,
-            "headers": CORS,
-            "body": json.dumps({"status": "skipped", "message": "Google Places API key not configured"}),
-        }
+        return {"status": "skipped", "message": "Google Places API key not configured", "addedCount": 0, "skippedCount": 0}
 
-    spots_table = _get_table(SPOTS_TABLE)
+    spots_table = get_table(SPOTS_TABLE)
     existing_spots: list[dict[str, Any]] = spots_table.scan()["Items"]
     existing_coords = [(float(s.get("lat", 0)), float(s.get("lng", 0))) for s in existing_spots]
 
+    queries = [NEARBY_QUERY] if location_bias else NATIONWIDE_QUERIES
+
     # 複数クエリの結果を集約し、クエリ間の重複も除去する
     candidates: dict[str, dict[str, Any]] = {}
-    for query in SEARCH_QUERIES:
-        for c in search_places(query, places_key):
+    for query in queries:
+        for c in search_places(query, places_key, location_bias):
             key = f"{c['lat']:.5f},{c['lng']:.5f}"
             candidates.setdefault(key, c)
 
-    gemini_key = _get_gemini_api_key()
+    gemini_key = get_ssm_parameter(GEMINI_API_KEY_PARAM)
+    base_lat = location_bias["lat"] if location_bias else DEFAULT_BASE_LAT
+    base_lng = location_bias["lng"] if location_bias else DEFAULT_BASE_LNG
     added, skipped = 0, 0
 
     for c in candidates.values():
@@ -231,7 +203,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             skipped += 1
             continue
 
-        distance_km = haversine_km(BASE_LAT, BASE_LNG, c["lat"], c["lng"])
+        distance_km = haversine_km(base_lat, base_lng, c["lat"], c["lng"])
         fish_types = guess_fish_types(c["name"], c["address"], gemini_key)
 
         spot_id = f"spot-{random.getrandbits(32):08x}"
@@ -250,5 +222,26 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         added += 1
         print(f"  Added: {c['name']} ({c['address']})")
 
-    result = {"status": "completed", "addedCount": added, "skippedCount": skipped}
+    return {"status": "completed", "addedCount": added, "skippedCount": skipped}
+
+
+def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """POST /admin/run-spot-discovery（adminRunSpotDiscovery経由）のエントリーポイント。
+
+    「現在地から探す」ボタンから呼ばれ、event に lat/lng が含まれていれば
+    現在地周辺に絞った検索を、含まれていなければ全国向けの検索を行う。
+
+    Args:
+        event   (dict[str, Any]): Lambda イベント。lat (float) / lng (float) を含み得る
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に run_discovery() の結果
+    """
+    print("discoverSpotsBatch started")
+
+    lat, lng = event.get("lat"), event.get("lng")
+    location_bias = {"lat": float(lat), "lng": float(lng)} if lat is not None and lng is not None else None
+
+    result = run_discovery(location_bias)
     return {"statusCode": 200, "headers": CORS, "body": json.dumps(result)}
