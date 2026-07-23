@@ -105,8 +105,10 @@ export interface BatchStatus {
    * - `running`   : 実行中（ボタン無効化・スピナー表示）
    * - `completed` : 完了（成功メッセージ表示）
    * - `failed`    : 失敗（エラーメッセージ表示）
+   * - `timeout`   : バッチは非同期起動されたがポーリング時間内に完了を確認できなかった
+   *                 （失敗ではなく、裏側では実行中/完了している可能性がある状態）
    */
-  status: "running" | "completed" | "failed" | "idle";
+  status: "running" | "completed" | "failed" | "timeout" | "idle";
   /** バッチ開始日時（ISO 8601 形式・省略可） */
   startedAt?: string;
   /** バッチ完了日時（ISO 8601 形式・省略可） */

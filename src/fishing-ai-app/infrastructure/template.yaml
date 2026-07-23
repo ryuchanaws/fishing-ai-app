@@ -229,7 +229,11 @@ Resources:
       MemorySize: 512  # API系のデフォルト256MBより大きく設定
       Policies:
         - SSMParameterReadPolicy:
-            ParameterName: /fishing-ai/gemini-api-key
+            # SAM の SSMParameterReadPolicy は内部で "parameter/${ParameterName}" として
+            # ARN を組み立てるため、先頭にスラッシュを付けると "parameter//..." という
+            # 二重スラッシュのARNになり実際のパラメータと一致しなくなる（AccessDenied の原因）。
+            # そのため先頭のスラッシュを付けない。
+            ParameterName: fishing-ai/gemini-api-key
         - DynamoDBReadPolicy:
             TableName: !Ref SpotsTable
         - DynamoDBCrudPolicy:

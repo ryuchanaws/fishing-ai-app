@@ -22,6 +22,7 @@ Requirements:
 import json
 import os
 import random
+import urllib.request
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
@@ -29,6 +30,17 @@ from typing import Any
 import boto3
 import google.generativeai as genai
 from botocore.exceptions import ClientError
+
+# 天気・海面水位（潮汐）データの取得元。
+# Open-Meteo は APIキー登録不要・無料（非商用）で、
+# 複数の気象・海洋機関のデータを統合して提供している信頼性の高いサービス。
+# https://open-meteo.com/
+OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
+OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine"
+
+# 外部API呼び出しのタイムアウト（秒）。
+# バッチ全体のLambdaタイムアウト(300秒)を圧迫しないよう短めに設定。
+EXTERNAL_API_TIMEOUT_SEC = 5
 
 # DynamoDB リソースを初期化
 # リージョンは環境変数から取得（デフォルト: 東京）
@@ -119,37 +131,133 @@ def calc_score(fish_prob: float, weather: float, tide: float,
     return max(0.0, min(100.0, score))
 
 
-# ─── Simulated weather/tide ──────────────────────────────────────────
-def fetch_weather_score(lat: float, lng: float) -> float:
-    """指定座標の天気スコアを取得する。
+# ─── Weather/tide via Open-Meteo（無料・APIキー不要） ──────────────────
+def _http_get_json(url: str, params: dict[str, str]) -> dict[str, Any]:
+    """指定URLにGETリクエストを送り、JSONレスポンスをdictで返す。
 
-    現在はシミュレーション値を返す。
-    本番環境では OpenWeatherMap または気象庁API に差し替えること。
+    追加の依存パッケージ（requests等）を避けるため標準ライブラリの
+    urllib.request のみで実装している。
+
+    Args:
+        url (str): リクエスト先URL（クエリなし）
+        params (dict[str, str]): クエリパラメータ
+
+    Returns:
+        dict[str, Any]: パース済みJSONレスポンス
+
+    Raises:
+        urllib.error.URLError: 通信エラー・タイムアウト時
+        json.JSONDecodeError: レスポンスがJSONとして不正な場合
+    """
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    with urllib.request.urlopen(f"{url}?{query}", timeout=EXTERNAL_API_TIMEOUT_SEC) as resp:
+        return json.loads(resp.read())
+
+
+def fetch_weather_score(lat: float, lng: float) -> float:
+    """指定座標の現在の天気スコアを Open-Meteo API から取得する。
+
+    天気コード（WMO）・降水量・風速から釣行に適した天気かどうかを
+    ヒューリスティックにスコア化する。API呼び出しに失敗した場合は
+    シミュレーション値にフォールバックし、バッチ全体は継続させる。
 
     Args:
         lat (float): 緯度
         lng (float): 経度
 
     Returns:
-        float: 天気スコア（0〜100）
+        float: 天気スコア（0〜100。値が高いほど釣行に適した天気）
     """
-    return random.uniform(50, 95)
+    try:
+        data = _http_get_json(OPEN_METEO_FORECAST_URL, {
+            "latitude": str(lat),
+            "longitude": str(lng),
+            "current": "weather_code,precipitation,wind_speed_10m,cloud_cover",
+            "timezone": "Asia%2FTokyo",
+        })
+        current = data["current"]
+        weather_code: int = current["weather_code"]
+        precipitation: float = current["precipitation"]
+        wind_speed: float = current["wind_speed_10m"]  # km/h
+
+        score = 100.0
+
+        # WMO Weather interpretation codes による天気状態の減点
+        # https://open-meteo.com/en/docs (WMO Weather interpretation codes)
+        if weather_code in (0, 1, 2, 3):          # 快晴〜くもり
+            pass
+        elif weather_code in (45, 48):             # 霧
+            score -= 15
+        elif weather_code in (51, 53, 55, 56, 57):  # 霧雨
+            score -= 20
+        elif weather_code in (61, 63, 65, 66, 67):  # 雨
+            score -= 35
+        elif weather_code in (71, 73, 75, 77, 85, 86):  # 雪
+            score -= 40
+        elif weather_code in (80, 81, 82):          # にわか雨
+            score -= 30
+        elif weather_code in (95, 96, 99):          # 雷雨
+            score -= 50
+        else:
+            score -= 10
+
+        # 降水量（mm）による追加減点（最大30点）
+        score -= min(precipitation * 10, 30)
+
+        # 強風による減点（30km/h超で減点開始、最大25点）
+        if wind_speed > 30:
+            score -= min((wind_speed - 30) * 1.2, 25)
+
+        return max(0.0, min(100.0, score))
+
+    except Exception as e:
+        print(f"Open-Meteo weather API error: {e}")
+        return random.uniform(50, 95)
 
 
 def fetch_tide_score(lat: float, lng: float) -> float:
-    """指定座標の潮汐スコアを取得する。
+    """指定座標の潮汐（潮の動き）スコアを Open-Meteo Marine API から取得する。
 
-    現在はシミュレーション値を返す。
-    本番環境では WorldTides 等の潮汐APIに差し替えること。
+    「潮が動いている時間帯ほど魚の活性が上がる」という釣りの経験則に基づき、
+    現在時刻前後の海面水位（sea_level_height_msl）の変化率を計算し、
+    変化が大きいほど高スコアとする（満潮・干潮の停滞時は低スコア）。
+    API呼び出しに失敗した場合はシミュレーション値にフォールバックする。
 
     Args:
         lat (float): 緯度
         lng (float): 経度
 
     Returns:
-        float: 潮汐スコア（0〜100）
+        float: 潮汐スコア（0〜100。値が高いほど潮がよく動いている）
     """
-    return random.uniform(50, 95)
+    try:
+        data = _http_get_json(OPEN_METEO_MARINE_URL, {
+            "latitude": str(lat),
+            "longitude": str(lng),
+            "hourly": "sea_level_height_msl",
+            "forecast_days": "1",
+            "timezone": "Asia%2FTokyo",
+        })
+        heights: list[float] = data["hourly"]["sea_level_height_msl"]
+        times: list[str] = data["hourly"]["time"]
+
+        now_hour = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%dT%H:00")
+        # 現在時刻に最も近い時間帯のインデックスを探す（見つからなければ中央値を使用）
+        idx = next((i for i, t in enumerate(times) if t.startswith(now_hour[:13])), len(times) // 2)
+
+        prev_idx = max(0, idx - 1)
+        next_idx = min(len(heights) - 1, idx + 1)
+        # 前後1時間の水位差（m/h）を潮の動きの速さとみなす
+        rate_per_hour = abs(heights[next_idx] - heights[prev_idx]) / max(1, next_idx - prev_idx)
+
+        # 経験的に0.25m/h前後が最も潮が動く時間帯の目安（大潮の最速帯）
+        # 停滞時（満潮・干潮付近）でも20点は下限として与える
+        score = 20 + min(80.0, (rate_per_hour / 0.25) * 80.0)
+        return max(0.0, min(100.0, score))
+
+    except Exception as e:
+        print(f"Open-Meteo marine API error: {e}")
+        return random.uniform(50, 95)
 
 
 def estimate_fish_probability(spot_name: str, fish_types: list[str]) -> float:
@@ -201,7 +309,7 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-flash-latest")
         
         prompt = f"""あなたは釣りの専門家です。以下のデータを元に、釣り人向けに「なぜこのスポットが今日おすすめか」を2〜3文の自然な日本語で説明してください。専門用語を使いつつも親しみやすい文体で。
 

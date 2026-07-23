@@ -4,12 +4,21 @@ admin_trigger.py
 POST /admin/run-ai-batch のハンドラー。
 
 フロントエンドの「AI実行ボタン」から呼び出され、
-generateSpotScoreBatch Lambda を同期的に invoke して結果を返す。
+generateSpotScoreBatch Lambda を非同期に invoke してすぐに応答を返す。
 
 処理フロー:
     1. フロントエンドから POST /admin/run-ai-batch を受信
-    2. generateSpotScoreBatch Lambda を RequestResponse で同期呼び出し
-    3. バッチ処理の結果をそのままフロントエンドに返却
+    2. generateSpotScoreBatch Lambda を Event（非同期）で invoke
+    3. 呼び出しを受け付けた旨を即座にフロントエンドへ返却
+    4. フロントエンドは GET /recommendations をポーリングして完了を検知する
+
+Note:
+    以前は InvocationType="RequestResponse" で同期呼び出しし、
+    バッチ完了まで待ってから結果を返していた。しかし API Gateway
+    (REST API) の統合タイムアウトは 29 秒が上限で、Gemini API 呼び出しを
+    含むバッチ処理（5スポット分）はこれを超えることがあり、Lambda自体は
+    成功しているのに API Gateway 側が 504 Timeout を返す問題があった。
+    非同期呼び出しに変更し即座に応答することでこの問題を回避している。
 
 Requirements:
     - 環境変数 BATCH_FUNCTION_NAME に呼び出し先 Lambda 名が設定済みであること
@@ -36,11 +45,12 @@ CORS = {
 
 
 def handler(event, context):
-    """generateSpotScoreBatch Lambda を同期実行してバッチ処理を開始する。
+    """generateSpotScoreBatch Lambda を非同期起動し、即座に受付応答を返す。
 
     OPTIONS リクエスト（CORS プリフライト）は即座に 200 を返す。
-    POST リクエスト時は generateSpotScoreBatch を同期呼び出しし、
-    バッチ処理の完了を待ってから結果をフロントエンドに返す。
+    POST リクエスト時は generateSpotScoreBatch を非同期呼び出し（Event）し、
+    完了を待たずに「受け付けた」旨のレスポンスを返す。
+    実際の完了確認はフロントエンド側で GET /recommendations をポーリングして行う。
 
     Args:
         event   (dict): API Gateway イベントオブジェクト
@@ -49,37 +59,36 @@ def handler(event, context):
 
     Returns:
         dict:
-            成功時 200:
+            受付成功時 202:
                 {
-                    "status": "completed",
-                    "processedCount": int,
-                    "completedAt": str
+                    "status": "started",
+                    "startedAt": str  # ISO 8601
                 }
-            失敗時 500:
+            起動失敗時 500:
                 {
                     "status": "failed",
                     "message": str  # エラー内容
                 }
-
-    Note:
-        Lambda のタイムアウトは generateSpotScoreBatch の実行時間より
-        長く設定すること（template.yaml で Timeout: 330 を指定済み）。
     """
     # CORS プリフライトリクエストを処理
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
+    from datetime import datetime, timezone
+
     try:
-        # generateSpotScoreBatch を同期呼び出し（完了まで待機）
-        response = lambda_client.invoke(
+        # generateSpotScoreBatch を非同期呼び出し（応答を待たずに起動だけ行う）
+        lambda_client.invoke(
             FunctionName=BATCH_FUNCTION,
-            InvocationType="RequestResponse",
+            InvocationType="Event",
             Payload=json.dumps({}),
         )
-        payload = json.loads(response["Payload"].read())
-        body    = json.loads(payload.get("body", "{}"))
+        body = {
+            "status": "started",
+            "startedAt": datetime.now(timezone.utc).isoformat(),
+        }
         return {
-            "statusCode": 200,
+            "statusCode": 202,
             "headers": CORS,
             "body": json.dumps(body),
         }

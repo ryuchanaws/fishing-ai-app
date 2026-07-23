@@ -230,7 +230,7 @@ body  {
   transform: none;
 }
 
-/* バッチ実行結果メッセージ（完了 / エラー） */
+/* バッチ実行結果メッセージ（完了 / エラー / タイムアウト） */
 .batch-status  {
 
   display: inline-flex;
@@ -250,6 +250,12 @@ body  {
 .batch-status.error  {
   color: var(--danger);
   background: rgba(224,92,92,0.1);
+}
+
+/* タイムアウト時: 失敗と区別するためオレンジ系（警告色） */
+.batch-status.pending  {
+  color: var(--warn);
+  background: rgba(245,166,35,0.1);
 }
 
 /* ===== SECTION ===== */

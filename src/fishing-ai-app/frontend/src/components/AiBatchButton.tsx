@@ -5,7 +5,7 @@
  * 実行状態に応じてボタンのラベル・スピナー・結果メッセージを切り替える。
  */
 
-import { Zap, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
+import { Zap, Loader2, CheckCircle2, AlertCircle, Clock } from "lucide-react";
 import type { BatchStatus } from "../types";
 
 /**
@@ -68,6 +68,14 @@ export const AiBatchButton = ({ status, onRun }: AiBatchButtonProps) => {
         <div className="batch-status error">
           <AlertCircle size={14} />
           <span>{status.message ?? "エラーが発生しました"}</span>
+        </div>
+      )}
+
+      {/* タイムアウト時: 失敗ではなく「裏側で継続中かもしれない」ことを伝えるニュートラルな表示 */}
+      {status.status === "timeout" && (
+        <div className="batch-status pending">
+          <Clock size={14} />
+          <span>{status.message ?? "処理状況を確認できませんでした"}</span>
         </div>
       )}
     </div>

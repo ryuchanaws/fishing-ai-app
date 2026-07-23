@@ -89,12 +89,14 @@ export const removeFavorite = async (userId: string, spotId: string): Promise<vo
 };
 
 /**
- * AI バッチ処理を手動実行する。
+ * AI バッチ処理を非同期に起動する。
  *
- * POST /admin/run-ai-batch を呼び出し、
- * generateSpotScoreBatch Lambda を起動してスコアと推薦理由を更新する。
+ * POST /admin/run-ai-batch を呼び出し、generateSpotScoreBatch Lambda を
+ * 非同期起動する。バッチの完了は待たず、起動を受け付けた時点で即座に返る
+ * （API Gateway の29秒タイムアウトを回避するため）。
+ * 完了確認は呼び出し側で GET /recommendations をポーリングして行う。
  *
- * @returns {Promise<BatchStatus>} バッチ処理の実行結果
+ * @returns {Promise<BatchStatus>} 起動受付結果（status: "started", startedAt を含む）
  */
 export const runAiBatch = async (): Promise<BatchStatus> => {
   const { data } = await api.post("/admin/run-ai-batch");
