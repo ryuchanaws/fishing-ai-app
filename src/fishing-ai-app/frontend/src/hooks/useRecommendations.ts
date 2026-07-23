@@ -79,10 +79,15 @@ export const useRecommendations = () => {
     }
 
     for (let attempt = 0; attempt < MAX_POLL_ATTEMPTS; attempt++) {
+      // setTimeoutをPromise化した簡易sleep。3秒待ってから次の確認を行う
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
 
       try {
         const data = await getRecommendations();
+        // updatedAtはISO 8601形式（例: "2026-07-23T14:42:19.889892+00:00"）で
+        // 文字列比較しても時系列順が保たれるため、そのまま > 比較でよい。
+        // 全スポットのupdatedAtがバッチ起動時刻より新しくなっていれば
+        // 「5スポット全て処理が終わった」とみなせる
         const allUpdated =
           data.length > 0 &&
           data.every((rec) => (rec.updatedAt ?? "") > startedAt);

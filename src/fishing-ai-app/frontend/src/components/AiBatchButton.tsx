@@ -24,6 +24,7 @@ interface AiBatchButtonProps {
  * - 実行中はスピナーを表示してボタンを無効化する
  * - 完了時は緑色の成功メッセージを表示する
  * - 失敗時は赤色のエラーメッセージを表示する
+ * - タイムアウト時（ポーリング時間内に完了を確認できなかった場合）はオレンジ色の中立的なメッセージを表示する
  *
  * @param {AiBatchButtonProps} props
  * @returns {JSX.Element} AI実行ボタンと実行結果メッセージ

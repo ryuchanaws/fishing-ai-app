@@ -51,9 +51,16 @@ ssm = boto3.client(
     region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
 )
 
-# 環境変数からテーブル名・APIキーを取得
+# 環境変数からテーブル名・SSMパラメータ名を取得
 SPOTS_TABLE           = os.environ.get("SPOTS_TABLE", "fishing-spots")
 RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recommendations")
+# GEMINI_API_KEY は変数名にAPIキーとあるが、実際に入るのは
+# SSM Parameter Store 上のパラメータ「名前」（/fishing-ai/gemini-api-key）であり、
+# 実際のキー文字列自体は _get_gemini_api_key() が実行時にSSMから取得する。
+# なお参照している環境変数名 "GEMINI_API_KEY_PARAM" は template.yaml の
+# Globals では設定されていない（template.yaml 側は "GEMINI_API_KEY" という
+# 別名で設定している）ため、この os.environ.get は常にデフォルト値
+# "/fishing-ai/gemini-api-key" にフォールバックする（現状はそれで正しく動作する）。
 GEMINI_API_KEY = os.environ.get(
     "GEMINI_API_KEY_PARAM",
     "/fishing-ai/gemini-api-key",
@@ -370,8 +377,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "body": json.dumps({"message": "No spots found", "processedCount": 0}),
         }
 
+    # スポットごとに直列処理する。並列化していないのは、Gemini API呼び出し
+    # （1件あたり数秒）が支配的でDynamoDBの負荷は問題にならないため、
+    # 実装の単純さを優先している。5スポットで合計30秒前後かかる。
     processed = 0
     for spot in spots:
+        # DynamoDBの必須項目はspotIdのみのため、他は欠損に備えてデフォルト値を設定
         spot_id:     str       = spot["spotId"]
         spot_name:   str       = spot.get("name", spot_id)
         lat:         float     = float(spot.get("lat", 35.0))
@@ -380,14 +391,19 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         distance_km: float     = float(spot.get("distanceKm", 20.0))
         cost_yen:    float     = float(spot.get("costYen", 0))
 
+        # 天気・潮汐は外部API、fish_probは季節ヒューリスティックで算出
         weather_score = fetch_weather_score(lat, lng)
         tide_score    = fetch_tide_score(lat, lng)
         fish_prob     = estimate_fish_probability(spot_name, fish_types)
 
+        # スコアはルールベースで決定論的に計算し、reason文だけAIに生成させる
         score  = calc_score(fish_prob, weather_score, tide_score, distance_km, cost_yen)
         reason = generate_reason(spot_name, fish_types, score,
                                  weather_score, tide_score, distance_km)
 
+        # spotId をPKとして put_item するため、同じスポットの前回結果は上書きされる
+        # （Recommendationsテーブルは履歴を持たず、スポットごとに最新1件のみ保持する設計）
+        # DynamoDBはPythonのfloatを直接受け付けないため、Decimal(str(...))で変換している
         rec_table.put_item(Item={
             "spotId":       spot_id,
             "score":        Decimal(str(round(score, 2))),

@@ -162,11 +162,14 @@ def getRecommendationsHandler(event: dict[str, Any], context: Any) -> dict[str, 
     table_s = _get_table(SPOTS_TABLE)
 
     recs = table_r.scan().get("Items", [])
+    # DynamoDB（NoSQL）はテーブル間JOINができないため、spotIdをキーにした辞書を作り、
+    # アプリケーション側で手動で結合する
     spots = {s["spotId"]: s for s in table_s.scan().get("Items", [])}
 
     for rec in recs:
         rec["spot"] = spots.get(rec.get("spotId"), {})
 
+    # スコア降順（高いほど先頭）。フロント側で上位3件をTOP3として強調表示する
     recs_sorted = sorted(
         recs,
         key=lambda x: float(x.get("score", 0)),

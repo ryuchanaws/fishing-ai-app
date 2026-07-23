@@ -27,6 +27,8 @@ Requirements:
 
 import json
 import os
+from datetime import datetime, timezone
+
 import boto3
 
 # Lambda クライアントを初期化
@@ -73,8 +75,6 @@ def handler(event, context):
     # CORS プリフライトリクエストを処理
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
-
-    from datetime import datetime, timezone
 
     try:
         # generateSpotScoreBatch を非同期呼び出し（応答を待たずに起動だけ行う）
