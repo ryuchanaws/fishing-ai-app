@@ -1,1 +1,4 @@
+# requirements.txt (API Lambda)
+# AWS SDK for Python。DynamoDB へのアクセス（boto3.resource("dynamodb")）に使用する。
+# Lambda ランタイムには標準搭載されているが、ローカル開発・sam build のために明示している。
 boto3

@@ -56,6 +56,15 @@ CORS = {
 
 
 def _resp(status: int, body: dict[str, Any]) -> dict[str, Any]:
+    """API Gateway 形式のレスポンスオブジェクトを組み立てる。
+
+    Args:
+        status (int): HTTP ステータスコード
+        body (dict[str, Any]): レスポンスボディ（JSON シリアライズされる）
+
+    Returns:
+        dict[str, Any]: statusCode / headers / body を含む API Gateway レスポンス
+    """
     return {
         "statusCode": status,
         "headers": CORS,
@@ -64,6 +73,16 @@ def _resp(status: int, body: dict[str, Any]) -> dict[str, Any]:
 
 
 def _error_resp(e: Exception) -> dict[str, Any]:
+    """例外発生時に 500 エラーレスポンスを組み立てる。
+
+    スタックトレースを CloudWatch Logs に出力してからレスポンスを返す。
+
+    Args:
+        e (Exception): 発生した例外
+
+    Returns:
+        dict[str, Any]: statusCode=500 の API Gateway レスポンス
+    """
     logger.exception("Lambda error occurred")
     return _resp(500, {"error": str(e)})
 
@@ -71,6 +90,15 @@ def _error_resp(e: Exception) -> dict[str, Any]:
 def handler_guard(fn: Callable):
     """
     全ハンドラー共通の例外ハンドリング
+
+    各ハンドラー関数をラップし、内部で例外が発生した場合に
+    500 エラーレスポンスへ変換して返す共通デコレーター。
+
+    Args:
+        fn (Callable): ラップ対象のハンドラー関数
+
+    Returns:
+        Callable: 例外ハンドリング付きのラップ済みハンドラー
     """
     def wrapper(event: dict[str, Any], context: Any):
         try:
@@ -81,6 +109,17 @@ def handler_guard(fn: Callable):
 
 
 def _decimal_to_float(obj: Any) -> Any:
+    """DynamoDB が返す Decimal 型を再帰的に float へ変換する。
+
+    DynamoDB の数値型は Decimal で返却され、そのままでは
+    json.dumps でシリアライズできないため、レスポンス生成前に変換する。
+
+    Args:
+        obj (Any): 変換対象（list / dict / Decimal / その他）
+
+    Returns:
+        Any: Decimal を float に置き換えた同じ構造のオブジェクト
+    """
     if isinstance(obj, list):
         return [_decimal_to_float(i) for i in obj]
     if isinstance(obj, dict):
@@ -91,6 +130,14 @@ def _decimal_to_float(obj: Any) -> Any:
 
 
 def _get_table(name: str):
+    """DynamoDB テーブルオブジェクトを取得する。
+
+    Args:
+        name (str): DynamoDB テーブル名
+
+    Returns:
+        Table: boto3 の DynamoDB Table リソースオブジェクト
+    """
     return dynamodb.Table(name)  # type: ignore[attr-defined]
 
 
@@ -99,6 +146,18 @@ def _get_table(name: str):
 # ─────────────────────────────
 @handler_guard
 def getRecommendationsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /recommendations — おすすめスポット一覧をスコア降順で返す。
+
+    RecommendationsTable と SpotsTable を突き合わせ、
+    各推薦データに対応するスポット情報（spot）を付与して返す。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"items": [...]}（スコア降順）
+    """
     table_r = _get_table(RECOMMENDATIONS_TABLE)
     table_s = _get_table(SPOTS_TABLE)
 
@@ -122,6 +181,17 @@ def getRecommendationsHandler(event: dict[str, Any], context: Any) -> dict[str, 
 # ─────────────────────────────
 @handler_guard
 def getSpotsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /spots — 全釣りスポット一覧を返す。
+
+    SpotsTable を全件スキャンして返却する。並び順は保証されない。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"items": [...]}
+    """
     table = _get_table(SPOTS_TABLE)
     items = table.scan().get("Items", [])
     return _resp(200, {"items": _decimal_to_float(items)})
@@ -132,6 +202,17 @@ def getSpotsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def getPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /posts — 投稿一覧を新しい順で返す。
+
+    PostsTable を全件スキャンし、createdAt の降順（新しい順）にソートして返す。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"items": [...]}（createdAt 降順）
+    """
     table = _get_table(POSTS_TABLE)
     items = table.scan().get("Items", [])
 
@@ -149,6 +230,20 @@ def getPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def getFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /favorites — 指定ユーザーのお気に入り一覧を返す。
+
+    クエリパラメータ userId でお気に入りを絞り込み、
+    各お気に入りレコードに対応するスポット情報（spot）を付与して返す。
+    userId 未指定時は固定ユーザー "user-001" を使用する（個人利用想定）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            queryStringParameters.userId (str, optional): 対象ユーザーID
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"items": [...]}
+    """
     qs = event.get("queryStringParameters") or {}
     user_id = qs.get("userId", "user-001")
 
@@ -173,6 +268,21 @@ def getFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def postFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """POST /favorites — お気に入りスポットを追加する。
+
+    リクエストボディの spotId を FavoritesTable に登録する。
+    同一の userId + spotId が既に存在する場合は上書きされる（冪等性あり）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            body (str): JSON文字列。userId(省略可) / spotId(必須) / memo(省略可) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 201: {"message": "created"}
+            spotId 未指定時 400: {"error": "spotId is required"}
+    """
     body = json.loads(event.get("body") or "{}")
 
     user_id = body.get("userId", "user-001")
@@ -198,6 +308,23 @@ def postFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def deleteFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """DELETE /favorites/{spotId} — お気に入りスポットを削除する。
+
+    パスパラメータ spotId とクエリパラメータ userId の組み合わせで
+    FavoritesTable から該当レコードを削除する。
+    userId 未指定時は固定ユーザー "user-001" を使用する（個人利用想定）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            pathParameters.spotId (str): 削除対象のスポットID
+            queryStringParameters.userId (str, optional): 対象ユーザーID
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"message": "deleted"}
+            spotId 未指定時 400: {"error": "spotId is required"}
+    """
     spot_id = (event.get("pathParameters") or {}).get("spotId")
     qs = event.get("queryStringParameters") or {}
     user_id = qs.get("userId", "user-001")

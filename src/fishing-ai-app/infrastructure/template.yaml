@@ -118,7 +118,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: getRecommendationsHandler
-      Handler: handlers.get_recommendations      # handlers.py の get_recommendations 関数
+      Handler: handlers.getRecommendationsHandler  # handlers.py の getRecommendationsHandler 関数
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref RecommendationsTable }
@@ -135,7 +135,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: getSpotsHandler
-      Handler: handlers.get_spots
+      Handler: handlers.getSpotsHandler
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
@@ -151,7 +151,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: getPostsHandler
-      Handler: handlers.get_posts
+      Handler: handlers.getPostsHandler
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref PostsTable }
@@ -167,7 +167,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: getFavoritesHandler
-      Handler: handlers.get_favorites
+      Handler: handlers.getFavoritesHandler
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref FavoritesTable }
@@ -184,7 +184,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: createFavoriteHandler
-      Handler: handlers.create_favorite
+      Handler: handlers.postFavoritesHandler
       CodeUri: ../backend/lambda/api/
       Policies:
         # CrudPolicy = Create / Read / Update / Delete 全権限
@@ -201,7 +201,7 @@ Resources:
     Type: AWS::Serverless::Function
     Properties:
       FunctionName: deleteFavoriteHandler
-      Handler: handlers.delete_favorite
+      Handler: handlers.deleteFavoritesHandler
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBCrudPolicy: { TableName: !Ref FavoritesTable }

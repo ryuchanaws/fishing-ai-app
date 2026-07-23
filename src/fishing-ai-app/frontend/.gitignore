@@ -1,0 +1,9 @@
+# gitignore (frontend)
+# Git 管理から除外するファイル・ディレクトリ一覧
+
+# vite build の出力先（ビルドのたびに再生成されるため管理不要）
+dist
+# npm install で生成される依存パッケージ（package-lock.json から復元可能）
+node_modules
+# API キー等の秘匿値を含む環境変数ファイル（.env.example を元に各自で作成する）
+.env
