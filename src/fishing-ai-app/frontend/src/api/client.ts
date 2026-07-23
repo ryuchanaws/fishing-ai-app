@@ -6,8 +6,6 @@
 import axios from "axios";
 import type { Recommendation, Spot, Post, Favorite, BatchStatus } from "../types";
 
-console.log(import.meta.env.VITE_API_BASE_URL);
-
 /**
  * API Gateway のベースURL。
  * 環境変数 VITE_API_BASE_URL が未設定の場合はプレースホルダーを使用する。
