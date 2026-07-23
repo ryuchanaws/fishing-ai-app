@@ -42,9 +42,13 @@ from generate_score import _http_get_json, _get_table, ssm, genai
 
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
 
-# Google Places API キーの SSM パラメータ名（先頭スラッシュなし。
-# SAM の SSMParameterReadPolicy が "parameter/${ParameterName}" でARNを組み立てるため）
-GOOGLE_PLACES_API_KEY_PARAM = "fishing-ai/google-places-api-key"
+# Google Places API キーの SSM パラメータ名。
+# 実際の SSM パラメータ名（ssm.get_parameter の Name）は階層型（"/"を含む）の場合
+# 先頭にスラッシュが必須（AWSの仕様。無いと "must be a fully qualified name" エラーになる）。
+# 一方 template.yaml の SSMParameterReadPolicy.ParameterName は逆に先頭スラッシュなしが正しい
+# （SAM側が "parameter/${ParameterName}" として自動でスラッシュを補うため、ここでも付けると
+# 二重スラッシュのARNになりAccessDeniedになる。generate_score.py の GEMINI_API_KEY と同じ注意点）
+GOOGLE_PLACES_API_KEY_PARAM = "/fishing-ai/google-places-api-key"
 # Gemini API キーは generate_score.py と同じパラメータを共有する
 GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
 
