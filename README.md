@@ -10,18 +10,25 @@
 
 ## 1. AWS SSM にシークレット登録
 
-Claude API キーを AWS Systems Manager パラメータストアに安全に保存する。
+Gemini API キーを AWS Systems Manager パラメータストアに安全に保存する。
 Lambda の環境変数に直接書かずに SSM から取得することでセキュリティを高める。
+（AIコメント生成にのみ使用。天気・潮汐データは APIキー不要の Open-Meteo を使用しており、
+このシークレットは不要）
 
 ```bash
 aws ssm put-parameter \
-  --name /fishing-ai/claude-api-key \
-  --value "sk-ant-xxxxxxxx" \
+  --name fishing-ai/gemini-api-key \
+  --value "AIzaxxxxxxxx" \
   --type SecureString
 ```
 
-> `sk-ant-xxxxxxxx` は実際の Claude API キーに置き換えること。
-> Anthropic Console（https://console.anthropic.com）で取得できる。
+> `AIzaxxxxxxxx` は実際の Gemini API キーに置き換えること。
+> Google AI Studio（https://aistudio.google.com/apikey）で取得できる。
+>
+> **注意:** パラメータ名の先頭にスラッシュを付けないこと（`fishing-ai/...` であって `/fishing-ai/...` ではない）。
+> `template.yaml` の `SSMParameterReadPolicy` は内部で `parameter/${ParameterName}` として ARN を組み立てるため、
+> 先頭にスラッシュを付けると `parameter//fishing-ai/...` という二重スラッシュのARNになり、
+> 実際のパラメータと一致せず AccessDenied になる（2026-07-23 に実際に踏んだ不具合）。
 
 ---
 
@@ -115,10 +122,17 @@ git push origin main
 2. **AI 分析を実行**
    - TOP ページの「AI 分析を実行」ボタンをクリック
    - ボタンが「AI 分析中...」に変わりスピナーが表示されることを確認
+   - バッチ処理は非同期実行のため、ボタン押下直後にAPIは即座に応答するが、
+     実際の完了（DynamoDB更新）まではフロントエンドが `GET /recommendations` を
+     数秒おきにポーリングして待つ（5スポット分の天気・潮汐取得＋Gemini呼び出しで
+     合計30秒前後かかる）。60秒待っても完了を検知できない場合は
+     「バックグラウンドで実行中の可能性があります」という中立的な表示になる
+     （エラーではなく、裏側では継続している可能性がある状態）
 
 3. **結果を確認**
    - 分析完了後、釣りスポットのスコアと AI コメントが表示されることを確認
    - TOP3 ランキングと地図ピンが正しく表示されれば成功
+   - スコアは実際の天気（Open-Meteo）・潮汐（Open-Meteo Marine、海面水位の変化率）に基づいて算出される
 
 ---
 
@@ -126,7 +140,21 @@ git push origin main
 
 | 症状 | 原因 | 対処 |
 |---|---|---|
-| AI ボタンを押しても何も起きない | `VITE_API_BASE_URL` が未設定 | GitHub Secrets を確認して再デプロイ |
-| 地図が表示されない | `VITE_GOOGLE_MAPS_KEY` が無効 | Google Cloud Console で Maps JavaScript API を有効化 |
+| AI ボタンを押しても何も起きない | `VITE_API_BASE_URL` が未設定、または古いAPIエンドポイントを指している | GitHub Secrets とフロントの `.env` を確認して再デプロイ |
+| AIコメントが毎回同じ定型文になる | Gemini API キーが読めていない、またはモデル名が廃止されている | SSMパラメータ名の先頭スラッシュ有無を確認（上記1参照）。CloudWatch Logs の `generateSpotScoreBatch` で `SSM get_parameter error` や `Gemini API error` が出ていないか確認 |
+| 地図が表示されない | `VITE_GOOGLE_MAPS_KEY` が無効、または未設定 | Google Cloud Console で Maps JavaScript API を有効化。ローカルビルド（Cloudflare Pages等）には `frontend/.env` にも直接設定が必要（GitHub Secretsとは別管理） |
 | スポットが表示されない | 初期データ未投入 | 手順4の `seed_data.py` を再実行 |
-| Lambda がエラー | Claude API キーが未設定 | 手順1の SSM パラメータを確認 |
+| Lambda がエラー | Gemini API キーが未設定・無効 | 手順1の SSM パラメータを確認 |
+
+---
+
+## 7. デプロイ先（2026-07-23 時点）
+
+フロントエンドは2系統に並行デプロイしている。バックエンド（API Gateway/Lambda/DynamoDB）はAWS側1本のみで共通。
+
+| デプロイ先 | URL | デプロイ方法 |
+|---|---|---|
+| AWS（CloudFront） | https://d2ny5ej5kn6jzs.cloudfront.net/ | `main` ブランチへの push で GitHub Actions が自動デプロイ |
+| Cloudflare Pages | https://ryu-chan-fish.ryuchan-aws.workers.dev/ | `frontend` で `npm run build` の後 `npx wrangler pages deploy dist --project-name ryu-chan-fish`（手動デプロイ、CI化はしていない） |
+
+> 独自ドメイン（有料）は未取得。無料で使える見た目のURLとして Cloudflare Pages の `*.workers.dev` サブドメインを利用している。

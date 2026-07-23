@@ -69,9 +69,9 @@ score =
 <pre>
 ユーザー（PWA）
    ↓
-CloudFront
-   ↓
-S3（Frontend）
+CloudFront ─── または ─── Cloudflare Pages（無料サブドメイン運用）
+   ↓                            ↓
+S3（Frontend）              （静的ファイルを直接配信）
    ↓
 API Gateway
    ↓
@@ -91,6 +91,14 @@ DynamoDB
 <li>Lambda：処理実行</li>
 <li>DynamoDB：データ管理</li>
 </ul>
+
+<div class="box">
+【2026-07-23 追記】独自ドメイン取得（有料）の代わりに、フロントエンドのみ
+<b>Cloudflare Pages</b>（無料の *.workers.dev サブドメイン）にも並行デプロイしている
+（https://ryu-chan-fish.ryuchan-aws.workers.dev）。バックエンドAPI（API Gateway）は
+AWS側1本のみで、フロントのホスティング先が2系統（CloudFront / Cloudflare Pages）ある形。
+デプロイは `frontend` ディレクトリで `npm run build` → `wrangler pages deploy dist` で行う。
+</div>
 
 ---
 
@@ -132,10 +140,17 @@ Recommendations更新
 
 <table>
 <tr><th>用途</th><th>モデル</th><th>理由</th></tr>
-<tr><td>スコア生成</td><td>OpenAI GPT-4.1 / GPT-4o</td><td>数値処理とJSON出力安定</td></tr>
-<tr><td>理由生成</td><td>Claude / GPT-4o</td><td>自然言語品質</td></tr>
-<tr><td>コスト最適化</td><td>Gemini（補助）</td><td>低コストバッチ用途</td></tr>
+<tr><td>スコア生成</td><td>なし（ルールベース計算式）</td><td>数値スコアはAIに任せず、第1章のスコア式で決定論的に算出。再現性・低コストを優先</td></tr>
+<tr><td>理由生成（reason）</td><td>Gemini（gemini-flash-latest）</td><td>自然言語のコメント生成のみに限定して使用。低コスト・日本語品質のバランス</td></tr>
 </table>
+
+<div class="box">
+【2026-07-23 実装更新】当初案の GPT-4.1/Claude 併用構成ではなく、実装では reason 生成のみ Gemini を使用し、
+score 自体はAIを介さないルールベース計算に統一している。<br>
+また Gemini はモデル廃止・世代交代が頻繁なため、固定バージョン名（例: gemini-1.5-flash）ではなく
+自動追従エイリアス <b>gemini-flash-latest</b> を採用し、モデル廃止による突然の機能停止を避けている
+（実際に gemini-1.5-flash → gemini-2.5-flash の順で利用不可になった経緯がある）。
+</div>
 
 ---
 

@@ -54,12 +54,16 @@ th { background:#eef3f8; }
 
 <table>
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
-<tr><td>fetchWeatherBatch</td><td>天気取得</td><td>EventBridge</td></tr>
-<tr><td>fetchTideBatch</td><td>潮汐取得</td><td>EventBridge</td></tr>
-<tr><td>fetchFishingReportsBatch</td><td>釣果収集</td><td>EventBridge</td></tr>
-<tr><td>generateSpotScoreBatch</td><td>AIスコア生成</td><td>EventBridge</td></tr>
-<tr><td>updateRecommendationBatch</td><td>推薦更新</td><td>EventBridge</td></tr>
+<tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
+<tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch）</td></tr>
 </table>
+
+<div class="box">
+【2026-07-23 実装更新】設計当初は fetchWeatherBatch / fetchTideBatch / fetchFishingReportsBatch / updateRecommendationBatch
+の4分割を想定していたが、実装では generateSpotScoreBatch 1関数に統合している
+（スポットごとに天気・潮汐取得→スコア計算→AIコメント生成→DynamoDB保存までを直列実行）。
+釣果収集(fetchFishingReportsBatch)は未実装（Postsテーブル・投稿機能自体は将来拡張用に定義のみ）。
+</div>
 
 ---
 
@@ -116,12 +120,22 @@ th { background:#eef3f8; }
 <h4>処理</h4>
 <pre>
 Spots取得
- + Weatherデータ
- + Tideデータ
- + FishingReports
+ + Weatherデータ（Open-Meteo Forecast API）
+ + Tideデータ（Open-Meteo Marine API・海面水位）
  → スコア計算
+ → Gemini APIで推薦理由(reason)を生成
  → DynamoDB更新
 </pre>
+
+<h4>天気・潮汐データソース【2026-07-23 実装】</h4>
+<div class="box">
+外部の天気・潮汐APIは <b>Open-Meteo</b>（https://open-meteo.com/）を採用。
+APIキー登録不要・無料（非商用）で、複数の気象・海洋機関のデータを統合しており信頼性が高い。<br>
+・天気スコア：weather_code（WMO天気コード）・降水量・風速から独自ヒューリスティックで算出<br>
+・潮汐スコア：sea_level_height_msl（海面水位）の前後1時間の変化率から算出
+　（潮が動いている時間帯ほど魚の活性が上がるという経験則に基づく）<br>
+・外部API呼び出しが失敗した場合はシミュレーション値にフォールバックし、バッチ全体は継続する
+</div>
 
 <h4>スコアロジック</h4>
 <pre>
@@ -134,6 +148,22 @@ score =
 </pre>
 
 ---
+
+<h3>adminRunAiBatch【2026-07-23 追記】</h3>
+
+<div class="box">
+目的：フロントの「AI分析を実行」ボタンから generateSpotScoreBatch を起動する
+</div>
+
+<div class="box">
+API Gateway（REST API）は統合タイムアウトが29秒固定であり、Gemini API呼び出しを含む
+generateSpotScoreBatch（5スポット分）はこれを超えることがある。当初は同期呼び出し
+（RequestResponse）で実装していたため、Lambda自体は成功しているのに API Gateway が
+504 timeoutを返し、ボタンにエラー表示が出る問題があった。<br><br>
+対応として adminRunAiBatch は generateSpotScoreBatch を<b>非同期呼び出し（Event）</b>に変更し、
+起動受付（202）を即座に返す方式に変更した。完了確認はフロントエンド側で
+GET /recommendations を定期的にポーリングして行う。
+</div>
 
 <h2>5. 非機能要件</h2>
 
