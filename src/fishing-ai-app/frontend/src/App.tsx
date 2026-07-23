@@ -12,6 +12,7 @@ import { TopPage } from "./pages/TopPage";
 import { MapPage } from "./pages/MapPage";
 import { SpotsPage } from "./pages/SpotsPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
+import { PostsPage } from "./pages/PostsPage";
 import "./styles.css";
 
 /**
@@ -39,6 +40,8 @@ export default function App() {
             <Route path="/spots" element={<SpotsPage />} />
             {/* /favorites : お気に入りスポット一覧 */}
             <Route path="/favorites" element={<FavoritesPage />} />
+            {/* /posts : 釣果投稿一覧・投稿作成 */}
+            <Route path="/posts" element={<PostsPage />} />
           </Routes>
         </main>
       </div>

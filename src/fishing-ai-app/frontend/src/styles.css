@@ -177,9 +177,18 @@ body  {
   font-size: 13px;
 }
 
+/* ページヘッダー右側のアイコンボタン群（現在地・更新など）を横並びに */
+.page-header-actions  {
+  display: flex;
+  gap: 8px;
+}
+
 /* ===== AI BATCH BUTTON ===== */
-/* 「AI分析を実行」ボタンのラッパー */
+/* 「AI分析を実行」ボタンのラッパー。SpotDiscoveryButton と横並びに配置する */
 .ai-batch-section  {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
   margin-bottom: 28px;
 }
 
@@ -667,7 +676,13 @@ body  {
 /* モーダルアクション: ナビ・お気に入りボタンを横並び */
 .modal-actions  {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
+}
+
+.modal-actions .btn-nav  {
+  /* ボタン数が増えても1行に収まりきらない場合は2列で折り返す */
+  flex: 1 1 45%;
 }
 
 /* ナビ・お気に入りボタン共通スタイル */
@@ -882,6 +897,125 @@ body  {
   color: var(--danger);
   font-size: 13px;
   margin-bottom: 16px;
+}
+
+/* ===== IMAGE PREVIEW POPOVER ===== */
+/* hover(PC)/長押し(スマホ)でスポット写真・魚種画像をプレビュー表示する */
+.image-preview-wrapper  {
+  position: relative;
+  display: inline-block;
+}
+
+.image-preview-popover  {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 6px;
+  width: 140px;
+  height: 140px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  overflow: hidden;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.image-preview-popover img  {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.image-preview-placeholder  {
+  font-size: 32px;
+  color: var(--text2);
+}
+
+/* ===== POSTS ===== */
+.posts-list  {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.post-card  {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.post-image  {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  display: block;
+}
+
+.post-body  {
+  padding: 14px 16px;
+}
+
+.post-spot-name  {
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.post-content  {
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+}
+
+.post-date  {
+  color: var(--text2);
+  font-size: 11px;
+  margin-top: 8px;
+}
+
+/* ===== POST FORM ===== */
+.post-form  {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.post-form-label  {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.post-form-select,
+.post-form-textarea,
+.post-form-input  {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.post-form-file  {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
 }
 
 /* ===== UTILITIES ===== */

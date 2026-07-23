@@ -94,3 +94,34 @@ export const getTideIcon = (score: number): string => {
   if (score >= 60) return "〰️"; // 中潮・普通
   return "💧";                  // 小潮・低条件
 };
+
+/**
+ * 距離（km）をバックエンドの calc_score と同じ正規化係数(0〜100)に変換する。
+ * distanceKm/100 を 0〜100 にクランプして返す（backend/lambda/batch/generate_score.py
+ * の calc_score() 内の dist_norm と同一の計算式）。
+ *
+ * @param {number} km - 距離（km）
+ * @returns {number} 正規化された距離（0〜100）
+ */
+const normalizeDistance = (km: number): number => Math.min(km / 100, 1) * 100;
+
+/**
+ * 実際の現在地からの距離を使ってスコアを近似的に再計算する。
+ *
+ * バックエンドの calc_score() は score に「距離ペナルティ(-distNorm*0.1)」を
+ * 織り込み済みで保存しているため、そのままでは距離だけを差し替えられない。
+ * ここでは元の distanceKm 由来のペナルティを一度打ち消し、
+ * 実際の現在地からの距離で計算し直したペナルティを掛け直すことで、
+ * DBを書き換えずにクライアント側だけで「現在地基準の順位」を近似する。
+ *
+ * @param {Recommendation} rec - 元のおすすめデータ（score・distance を含む）
+ * @param {number} newDistanceKm - 現在地からの実距離（km）
+ * @returns {number} 現在地基準に再計算したスコア（0〜100）
+ */
+export const recalcScoreForDistance = (
+  rec: { score: number; distance: number },
+  newDistanceKm: number
+): number => {
+  const delta = (normalizeDistance(rec.distance) - normalizeDistance(newDistanceKm)) * 0.1;
+  return Math.max(0, Math.min(100, rec.score + delta));
+};

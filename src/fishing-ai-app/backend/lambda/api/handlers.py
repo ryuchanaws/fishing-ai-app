@@ -6,10 +6,13 @@ API Gateway から呼び出される Lambda ハンドラー群。
 Endpoints:
     GET    /recommendations
     GET    /spots
+    PUT    /spots/{spotId}/image
     GET    /posts
+    POST   /posts
     GET    /favorites
     POST   /favorites
     DELETE /favorites/{spotId}
+    POST   /uploads/presign
 
 Requirements:
     - 環境変数にDynamoDBテーブル名が設定済み
@@ -18,8 +21,10 @@ Requirements:
 
 import json
 import os
+import uuid
 import logging
 from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 import boto3
@@ -43,6 +48,20 @@ SPOTS_TABLE = os.environ.get("SPOTS_TABLE", "fishing-spots")
 RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recommendations")
 FAVORITES_TABLE = os.environ.get("FAVORITES_TABLE", "fishing-favorites")
 POSTS_TABLE = os.environ.get("POSTS_TABLE", "fishing-posts")
+
+# ─────────────────────────────
+# S3（スポット写真・投稿写真のアップロード先）
+# ─────────────────────────────
+s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
+UPLOADS_BUCKET = os.environ.get("UPLOADS_BUCKET", "")
+PRESIGNED_URL_EXPIRES_SEC = 300  # 署名付きURLの有効期限（5分）
+
+# アップロード可能な画像形式とその拡張子（想定外の形式のアップロードを防ぐ）
+ALLOWED_CONTENT_TYPES = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "image/webp": "webp",
+}
 
 
 # ─────────────────────────────
@@ -345,3 +364,127 @@ def deleteFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any
     )
 
     return _resp(200, {"message": "deleted"})
+
+
+# ─────────────────────────────
+# /posts (POST)
+# ─────────────────────────────
+@handler_guard
+def postPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """POST /posts — 釣果投稿を作成する。
+
+    リクエストボディの spotId / content を PostsTable に登録する。
+    postId はサーバー側で uuid4 を採番し、createdAt は現在時刻を設定する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            body (str): JSON文字列。spotId(必須) / content(必須) /
+                userId(省略可) / imageUrl(省略可) / fishCaught(省略可) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 201: {"message": "created", "post": {...}}
+            spotId/content 未指定時 400: {"error": "..."}
+    """
+    body = json.loads(event.get("body") or "{}")
+
+    spot_id = body.get("spotId")
+    content = body.get("content")
+
+    if not spot_id or not content:
+        return _resp(400, {"error": "spotId and content are required"})
+
+    post = {
+        "postId": str(uuid.uuid4()),
+        "spotId": spot_id,
+        "userId": body.get("userId", "user-001"),
+        "content": content,
+        "imageUrl": body.get("imageUrl", ""),
+        "fishCaught": body.get("fishCaught", []),
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+    table = _get_table(POSTS_TABLE)
+    table.put_item(Item=post)
+
+    return _resp(201, {"message": "created", "post": post})
+
+
+# ─────────────────────────────
+# /spots/{spotId}/image (PUT)
+# ─────────────────────────────
+@handler_guard
+def putSpotImageHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """PUT /spots/{spotId}/image — スポットの写真URLを設定する。
+
+    DetailModal からのアップロード完了後に呼び出され、
+    SpotsTable の該当レコードの imageUrl 属性を更新する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            pathParameters.spotId (str): 対象スポットID
+            body (str): JSON文字列。imageUrl(必須) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"message": "updated"}
+            spotId/imageUrl 未指定時 400: {"error": "..."}
+    """
+    spot_id = (event.get("pathParameters") or {}).get("spotId")
+    body = json.loads(event.get("body") or "{}")
+    image_url = body.get("imageUrl")
+
+    if not spot_id or not image_url:
+        return _resp(400, {"error": "spotId and imageUrl are required"})
+
+    table = _get_table(SPOTS_TABLE)
+    table.update_item(
+        Key={"spotId": spot_id},
+        UpdateExpression="SET imageUrl = :imageUrl",
+        ExpressionAttributeValues={":imageUrl": image_url},
+    )
+
+    return _resp(200, {"message": "updated"})
+
+
+# ─────────────────────────────
+# /uploads/presign (POST)
+# ─────────────────────────────
+@handler_guard
+def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """POST /uploads/presign — S3への直接アップロード用の署名付きURLを発行する。
+
+    フロントエンドはこのAPIで受け取った uploadUrl に対して画像バイナリを
+    直接 PUT する（Lambda/API Gatewayを経由させないことでペイロードサイズ
+    制限を回避する）。アップロード完了後は publicUrl を
+    Post.imageUrl / Spot.imageUrl として保存する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            body (str): JSON文字列。contentType(省略可、デフォルト image/jpeg) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"uploadUrl": str, "publicUrl": str}
+            未対応の画像形式時 400: {"error": "..."}
+    """
+    body = json.loads(event.get("body") or "{}")
+    content_type = body.get("contentType", "image/jpeg")
+
+    ext = ALLOWED_CONTENT_TYPES.get(content_type)
+    if not ext:
+        return _resp(400, {"error": f"unsupported contentType: {content_type}"})
+
+    key = f"uploads/{uuid.uuid4()}.{ext}"
+
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": UPLOADS_BUCKET, "Key": key, "ContentType": content_type},
+        ExpiresIn=PRESIGNED_URL_EXPIRES_SEC,
+    )
+    public_url = f"https://{UPLOADS_BUCKET}.s3.{os.environ.get('AWS_REGION', 'ap-northeast-1')}.amazonaws.com/{key}"
+
+    return _resp(200, {"uploadUrl": upload_url, "publicUrl": public_url})

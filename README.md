@@ -30,6 +30,20 @@ aws ssm put-parameter \
 > 先頭にスラッシュを付けると `parameter//fishing-ai/...` という二重スラッシュのARNになり、
 > 実際のパラメータと一致せず AccessDenied になる（2026-07-23 に実際に踏んだ不具合）。
 
+「新スポットを探す」機能（discoverSpotsBatch）が使う Google Places API キーも同様に登録する。
+Google Cloud Console で既存の Maps API と同じプロジェクトの「Places API」を有効化し、
+課金アカウントを紐付けたうえでキーを発行すること（個人利用の頻度なら月$200の無料クレジット枠に収まる想定）。
+
+```bash
+aws ssm put-parameter \
+  --name fishing-ai/google-places-api-key \
+  --value "AIzaxxxxxxxx" \
+  --type SecureString
+```
+
+> このパラメータが未登録の場合、discoverSpotsBatch は何もせず `{"status": "skipped"}` を返して正常終了する
+> （エラーにはならないが、新スポットも増えない）。
+
 ---
 
 ## 2. GitHub Secrets 登録
@@ -47,6 +61,10 @@ GitHub Actions のワークフローから AWS や外部サービスに安全に
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront ディストリビューション ID | AWS CloudFront コンソール |
 | `VITE_API_BASE_URL` | API Gateway のエンドポイント URL | SAM デプロイ後の出力値 |
 | `VITE_GOOGLE_MAPS_KEY` | Google Maps API キー | Google Cloud Console |
+
+> **補足:** スポット写真・投稿写真のアップロード先S3バケット（`fishing-ai-app-uploads-<アカウントID>`）は
+> ここでは扱わない。こちらは `template.yaml` の `UploadsBucket` としてSAM/CloudFormationで自動作成されるため、
+> 手動作成は不要（下記「3. S3 バケット作成」で扱うのはフロント静的ホスティング用の別バケット）。
 
 ---
 
@@ -134,6 +152,20 @@ git push origin main
    - TOP3 ランキングと地図ピンが正しく表示されれば成功
    - スコアは実際の天気（Open-Meteo）・潮汐（Open-Meteo Marine、海面水位の変化率）に基づいて算出される
 
+4. **現在地からのおすすめ（サブ機能）**
+   - TOPページ右上の現在地アイコンをクリックし、ブラウザの位置情報許可ダイアログを承認する
+   - メインのTOP3（基準地点からのスコア）とは別に、現在地からの実距離で再ランキングした上位3件が表示される
+   - この再ランキングはクライアント側だけで計算しておりDBは書き換わらない
+
+5. **新スポット自動発見**
+   - 「新スポットを探す」ボタンをクリックすると discoverSpotsBatch が非同期起動される
+   - Google Places API キー未登録の場合は何も追加されずに正常終了する（上記1参照）
+   - 数分後にスポット一覧ページを更新すると、Google Places APIで見つかった新しいスポットが増えていることを確認できる
+
+6. **釣果投稿**
+   - ナビの「釣果」タブから投稿一覧・投稿フォームを確認する
+   - 写真を選択して投稿すると、S3への直接アップロード（署名付きURL）→投稿作成の順に実行される
+
 ---
 
 ## トラブルシューティング
@@ -145,6 +177,9 @@ git push origin main
 | 地図が表示されない | `VITE_GOOGLE_MAPS_KEY` が無効、または未設定 | Google Cloud Console で Maps JavaScript API を有効化。ローカルビルド（Cloudflare Pages等）には `frontend/.env` にも直接設定が必要（GitHub Secretsとは別管理） |
 | スポットが表示されない | 初期データ未投入 | 手順4の `seed_data.py` を再実行 |
 | Lambda がエラー | Gemini API キーが未設定・無効 | 手順1の SSM パラメータを確認 |
+| 「新スポットを探す」を押しても増えない | Google Places API キー未登録、または請求先アカウント未紐付け | 手順1の `fishing-ai/google-places-api-key` を確認。CloudWatch Logs の `discoverSpotsBatch` で `Places API` のエラーが出ていないか確認 |
+| 写真アップロードが失敗する | S3バケットのCORS設定漏れ、または署名付きURLの有効期限切れ（5分） | `UploadsBucket` の CORS 設定を確認。アップロードは選択直後に行うため通常は期限切れにならない |
+| 投稿が反映されない | `POST /posts` の失敗、または一覧の再取得漏れ | ブラウザの開発者ツールでAPIレスポンスを確認。ページ再読み込みで反映されるか確認 |
 
 ---
 

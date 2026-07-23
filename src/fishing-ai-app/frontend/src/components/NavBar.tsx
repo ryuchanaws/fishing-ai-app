@@ -7,7 +7,7 @@
  */
 
 import { NavLink } from "react-router-dom";
-import { Home, Map, Heart, LayoutGrid } from "lucide-react";
+import { Home, Map, Heart, LayoutGrid, Camera } from "lucide-react";
 
 /**
  * グローバルナビゲーションバーコンポーネント。
@@ -50,6 +50,12 @@ export const NavBar = () => (
       <NavLink to="/favorites" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
         <Heart size={18} />
         <span>保存済み</span>
+      </NavLink>
+
+      {/* 釣果投稿ページ */}
+      <NavLink to="/posts" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+        <Camera size={18} />
+        <span>釣果</span>
       </NavLink>
     </div>
   </nav>

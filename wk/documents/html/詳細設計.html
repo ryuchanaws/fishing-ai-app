@@ -44,8 +44,11 @@ th { background:#eef3f8; }
 <tr><td>getRecommendationsHandler</td><td>TOP3取得</td><td>API Gateway</td></tr>
 <tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td></tr>
 <tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td></tr>
+<tr><td>createPostHandler【2026-07-24 追加】</td><td>釣果投稿の作成</td><td>API Gateway（POST /posts）</td></tr>
 <tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td></tr>
 <tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td></tr>
+<tr><td>updateSpotImageHandler【2026-07-24 追加】</td><td>スポット写真URLの設定</td><td>API Gateway（PUT /spots/{spotId}/image）</td></tr>
+<tr><td>presignUploadHandler【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td><td>API Gateway（POST /uploads/presign）</td></tr>
 </table>
 
 ---
@@ -56,13 +59,26 @@ th { background:#eef3f8; }
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
 <tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
 <tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch）</td></tr>
+<tr><td>discoverSpotsBatch【2026-07-24 追加】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加</td><td>EventBridge（毎週日曜AM6:00 JST）／adminRunSpotDiscovery経由</td></tr>
+<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery）</td></tr>
 </table>
 
 <div class="box">
 【2026-07-23 実装更新】設計当初は fetchWeatherBatch / fetchTideBatch / fetchFishingReportsBatch / updateRecommendationBatch
 の4分割を想定していたが、実装では generateSpotScoreBatch 1関数に統合している
 （スポットごとに天気・潮汐取得→スコア計算→AIコメント生成→DynamoDB保存までを直列実行）。
-釣果収集(fetchFishingReportsBatch)は未実装（Postsテーブル・投稿機能自体は将来拡張用に定義のみ）。
+釣果収集(fetchFishingReportsBatch＝外部サイトからの釣果自動収集)は信頼できる無料データソースが無いため
+引き続きスコープ外・未実装。<b>ユーザー自身による釣果投稿機能（createPostHandler）は2026-07-24に実装済み</b>で、
+これは fetchFishingReportsBatch とは別物（外部収集ではなくユーザー投稿）。
+</div>
+
+<div class="box">
+【2026-07-24 実装更新】これまで generateSpotScoreBatch はSpotsテーブルの既存スポットをre-scoreするのみで、
+新規スポットを増やす手段が無かった（seed_data.pyの手動編集・再実行のみ）。discoverSpotsBatch を追加し、
+Google Places API のText Search（実在POIデータ）で新規候補を探索、既存スポットと300m以内なら重複除外した上で
+Spotsテーブルへ自動追加するようにした。想定される魚種はGemini APIで地名から推測するが、
+座標・名称などの実在性に関わる情報はPlaces APIの結果のみを採用し、LLMには生成させない
+（座標のハルシネーションを避けるため）。
 </div>
 
 ---
@@ -165,6 +181,47 @@ generateSpotScoreBatch（5スポット分）はこれを超えることがある
 GET /recommendations を定期的にポーリングして行う。
 </div>
 
+<h3>discoverSpotsBatch【2026-07-24 追加】</h3>
+
+<div class="box">
+目的：新規釣りスポット候補をGoogle Places APIで探索し、Spotsテーブルに追加する
+</div>
+
+<h4>処理</h4>
+<pre>
+Spots全件取得（重複判定用）
+ → Google Places API Text Search（"釣り 堤防" 等の複数クエリ）
+ → 既存スポットと緯度経度がhaversine距離300m以内なら重複として除外
+ → Gemini APIで地名・住所から想定される魚種を推測（失敗時は汎用デフォルト）
+ → 基準地点（東京駅）からのdistanceKmを算出
+ → Spotsテーブルへput_item
+</pre>
+
+<div class="box">
+座標・スポット名などの実在性に関わる情報はGoogle Places APIの結果のみを採用し、
+LLM（Gemini）には生成させない（存在しない場所をAIが作り出すハルシネーションを避けるため）。
+Geminiは魚種の推測という、実在性に影響しない付随情報の生成にのみ用いる。
+</div>
+
+<h3>presignUploadHandler / updateSpotImageHandler / createPostHandler【2026-07-24 追加】</h3>
+
+<div class="box">
+目的：スポット写真・投稿写真のアップロードと、釣果投稿の作成
+</div>
+
+<h4>処理フロー（写真アップロード）</h4>
+<pre>
+1. フロントが POST /uploads/presign を呼び、S3への署名付きPUT URL（有効期限5分）を取得
+2. フロントがそのURLへ画像ファイルを直接PUT（Lambda/API Gatewayを経由しない。ペイロード制限回避のため）
+3. アップロード完了後、公開URL（publicUrl）を
+   PUT /spots/{spotId}/image （スポット写真）または
+   POST /posts のimageUrl（投稿写真）として保存
+</pre>
+
+<div class="box">
+アップロード先S3バケット（UploadsBucket）はGetObjectのみ公開許可、書き込みは署名付きURL経由のみに限定している。
+</div>
+
 <h2>5. 非機能要件</h2>
 
 <ul>
@@ -182,6 +239,13 @@ GET /recommendations を定期的にポーリングして行う。
 <li>Cognito認証必須</li>
 <li>API Gateway認証制御</li>
 </ul>
+
+<div class="box">
+【2026-07-24 時点】Cognito認証は引き続き未実装。個人利用中心のため userId は "user-001" 固定で運用しており、
+投稿機能（createPostHandler）もこの固定ユーザーで動作する。認証実装は今回のスコープから意図的に外し、
+他の機能（現在地からのおすすめ・画像機能・投稿・新規スポット自動発見）を先に実装したうえで
+最後に対応する方針とした。
+</div>
 
 ---
 

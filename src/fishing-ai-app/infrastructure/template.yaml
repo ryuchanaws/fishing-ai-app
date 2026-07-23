@@ -40,6 +40,8 @@ Globals:
         RECOMMENDATIONS_TABLE: !Ref RecommendationsTable
         FAVORITES_TABLE: !Ref FavoritesTable
         POSTS_TABLE: !Ref PostsTable
+        # ユーザー投稿・スポット写真のアップロード先バケット名
+        UPLOADS_BUCKET: !Ref UploadsBucket
         # Gemini API キーを SSM パラメータストアから動的に取得
         # キーは手順1で登録した /fishing-ai/gemini-api-key を参照
         GEMINI_API_KEY: "/fishing-ai/gemini-api-key"
@@ -96,7 +98,7 @@ Resources:
         - { AttributeName: userId, KeyType: HASH }     # HASH = パーティションキー
         - { AttributeName: spotId, KeyType: RANGE }    # RANGE = ソートキー
 
-  # 釣果投稿を保存するテーブル（将来拡張用）
+  # 釣果投稿を保存するテーブル
   PostsTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -106,6 +108,37 @@ Resources:
         - { AttributeName: postId, AttributeType: S }  # PK: 投稿ID（文字列）
       KeySchema:
         - { AttributeName: postId, KeyType: HASH }
+
+  # ==============================================================
+  # S3 バケット（スポット写真・投稿写真のアップロード先）
+  # 書き込みは署名付きURL経由のみ（バケットポリシーは GetObject のみ許可）
+  # ==============================================================
+  UploadsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "fishing-ai-app-uploads-${AWS::AccountId}"
+      CorsConfiguration:
+        CorsRules:
+          # フロントの本番/開発オリジンいずれからも署名付きURLへPUTできるよう許可
+          - AllowedOrigins: ["*"]
+            AllowedMethods: [GET, PUT]
+            AllowedHeaders: ["*"]
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        IgnorePublicAcls: true
+        BlockPublicPolicy: false
+        RestrictPublicBuckets: false
+
+  UploadsBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref UploadsBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: s3:GetObject
+            Resource: !Sub "${UploadsBucket.Arn}/*"
 
   # ==============================================================
   # Lambda 関数定義（API系）
@@ -212,6 +245,54 @@ Resources:
             Path: /favorites/{spotId}
             Method: DELETE
 
+  # POST /posts — 釣果投稿を作成する
+  CreatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: createPostHandler
+      Handler: handlers.postPostsHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref PostsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /posts
+            Method: POST
+
+  # PUT /spots/{spotId}/image — スポットの写真URLを設定する
+  UpdateSpotImageFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: updateSpotImageHandler
+      Handler: handlers.putSpotImageHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref SpotsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /spots/{spotId}/image
+            Method: PUT
+
+  # POST /uploads/presign — S3への直接アップロード用の署名付きURLを発行する
+  PresignUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: presignUploadHandler
+      Handler: handlers.postPresignUploadHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - S3WritePolicy: { BucketName: !Ref UploadsBucket }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /uploads/presign
+            Method: POST
+
   # ==============================================================
   # Lambda 関数定義（バッチ系）
   # ==============================================================
@@ -257,6 +338,9 @@ Resources:
       Handler: admin_trigger.handler
       CodeUri: ../backend/lambda/batch/
       Timeout: 330
+      Environment:
+        Variables:
+          BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
       Policies:
         # GenerateSpotScoreBatch の invoke 権限のみ付与（最小権限の原則）
         - LambdaInvokePolicy: { FunctionName: !Ref GenerateSpotScoreBatch }
@@ -267,6 +351,55 @@ Resources:
             Path: /admin/run-ai-batch
             Method: POST
 
+  # 新規釣りスポット候補を Google Places API で探索し、Spots テーブルに追加するバッチ
+  # 既存スポットとの重複（緯度経度が近い）は除外する
+  DiscoverSpotsBatch:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: discoverSpotsBatch
+      Handler: discover_spots.handler
+      CodeUri: ../backend/lambda/batch/
+      Timeout: 120
+      MemorySize: 256
+      Policies:
+        - SSMParameterReadPolicy:
+            # SSMParameterReadPolicy の ParameterName には先頭スラッシュを付けない
+            # （付けると parameter//... という二重スラッシュARNになりAccessDeniedになる。GenerateSpotScoreBatch と同じ注意点）
+            ParameterName: fishing-ai/google-places-api-key
+        - SSMParameterReadPolicy:
+            # 想定される魚種の推測にGemini APIも使うため、同じキーへの読み取り権限も付与
+            ParameterName: fishing-ai/gemini-api-key
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SpotsTable
+      Events:
+        # EventBridge スケジュール（毎週月曜 AM6:00 JST = 前日21:00 UTC に自動実行）
+        Schedule:
+          Type: Schedule
+          Properties:
+            Schedule: cron(0 21 ? * SUN *)
+            Enabled: true
+
+  # POST /admin/run-spot-discovery — フロントから手動で DiscoverSpotsBatch を起動する
+  # admin_trigger.py は BATCH_FUNCTION_NAME 環境変数で呼び出し先を切り替えられる汎用実装のため
+  # AdminRunAiBatchFunction と同じハンドラコードを異なる環境変数で再利用する
+  AdminRunSpotDiscoveryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: adminRunSpotDiscovery
+      Handler: admin_trigger.handler
+      CodeUri: ../backend/lambda/batch/
+      Environment:
+        Variables:
+          BATCH_FUNCTION_NAME: !Ref DiscoverSpotsBatch
+      Policies:
+        - LambdaInvokePolicy: { FunctionName: !Ref DiscoverSpotsBatch }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /admin/run-spot-discovery
+            Method: POST
+
 # ==============================================================
 # スタック出力
 # SAM デプロイ後にコンソールや GitHub Secrets に設定する値
@@ -275,3 +408,6 @@ Outputs:
   ApiEndpoint:
     Description: "API Gateway のエンドポイント URL（VITE_API_BASE_URL に設定すること）"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+  UploadsBucketName:
+    Description: "スポット写真・投稿写真のアップロード先S3バケット名"
+    Value: !Ref UploadsBucket

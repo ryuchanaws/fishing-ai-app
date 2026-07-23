@@ -9,6 +9,7 @@
 import { Heart, Navigation2, Fish } from "lucide-react";
 import type { Recommendation } from "../types";
 import { getScoreColor, getScoreLabel, formatScore, getWeatherIcon, getTideIcon } from "../utils/score";
+import { ImagePreviewPopover } from "./ImagePreviewPopover";
 
 /**
  * RecommendationCard コンポーネントの Props。
@@ -72,14 +73,19 @@ export const RecommendationCard = ({
       {/* カードヘッダー: スポット名・魚種タグ・スコアサークル */}
       <div className="card-header">
         <div>
-          <h3 className="spot-name">{rec.spot?.name ?? rec.spotId}</h3>
-          {/* 魚種タグ一覧 */}
+          {/* スポット名: hover(PC)/長押し(スマホ)でスポット写真をプレビュー表示 */}
+          <ImagePreviewPopover imageUrl={rec.spot?.imageUrl}>
+            <h3 className="spot-name">{rec.spot?.name ?? rec.spotId}</h3>
+          </ImagePreviewPopover>
+          {/* 魚種タグ一覧: hover/長押しでWikipediaの参考画像をプレビュー表示 */}
           <div className="fish-tags">
             {rec.fishTypes.map((f) => (
-              <span key={f} className="fish-tag">
-                <Fish size={11} />
-                {f}
-              </span>
+              <ImagePreviewPopover key={f} fishName={f}>
+                <span className="fish-tag">
+                  <Fish size={11} />
+                  {f}
+                </span>
+              </ImagePreviewPopover>
             ))}
           </div>
         </div>

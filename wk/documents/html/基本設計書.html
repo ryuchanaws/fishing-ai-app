@@ -90,6 +90,7 @@ DynamoDB
 <li>API Gateway：API管理</li>
 <li>Lambda：処理実行</li>
 <li>DynamoDB：データ管理</li>
+<li>S3（Uploads）【2026-07-24 追加】：スポット写真・投稿写真の保存（署名付きURL経由でのアップロードのみ許可）</li>
 </ul>
 
 <div class="box">
@@ -98,6 +99,13 @@ DynamoDB
 （https://ryu-chan-fish.ryuchan-aws.workers.dev）。バックエンドAPI（API Gateway）は
 AWS側1本のみで、フロントのホスティング先が2系統（CloudFront / Cloudflare Pages）ある形。
 デプロイは `frontend` ディレクトリで `npm run build` → `wrangler pages deploy dist` で行う。
+</div>
+
+<div class="box">
+【2026-07-24 追記】画像アップロード用にS3バケット（UploadsBucket）を追加した。フロントは
+API Gateway経由でLambdaが発行する署名付きURLに対して直接PUTする（Lambda/API Gatewayはバイナリを経由しない）。
+また、Spotsテーブルの新規候補探索のために Google Places API（Text Search）を新たに利用している
+（discoverSpotsBatch、詳細は詳細設計.html参照）。
 </div>
 
 ---
@@ -199,6 +207,9 @@ score 自体はAIを介さないルールベース計算に統一している。
 <tr><td>getSpots</td><td>スポット一覧</td></tr>
 <tr><td>getPosts</td><td>釣果取得</td></tr>
 <tr><td>createFavorite</td><td>お気に入り登録</td></tr>
+<tr><td>createPost【2026-07-24 追加】</td><td>釣果投稿の作成</td></tr>
+<tr><td>updateSpotImage【2026-07-24 追加】</td><td>スポット写真URLの設定</td></tr>
+<tr><td>presignUpload【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td></tr>
 </table>
 
 ---
@@ -212,6 +223,12 @@ score 自体はAIを介さないルールベース計算に統一している。
 <tr><td>generateScoreBatch</td><td>AIスコア生成</td></tr>
 <tr><td>updateRecommendationBatch</td><td>推薦更新</td></tr>
 </table>
+
+<div class="box">
+上記4分割は設計当初案。実装では generateSpotScoreBatch 1関数に統合、加えて discoverSpotsBatch
+【2026-07-24追加】を新設し、Google Places APIで新規スポット候補を探索してSpotsテーブルに追加する
+機能を持たせている。詳細は詳細設計.html「3. Lambda一覧（バッチ系）」参照。
+</div>
 
 ---
 
@@ -235,6 +252,7 @@ spotId (PK)
 name
 lat
 lng
+imageUrl（任意、2026-07-24追加。スポット写真のS3公開URL）
 </pre>
 
 <h3>Recommendations</h3>
@@ -255,6 +273,21 @@ userId (PK)
 spotId (SK)
 memo
 </pre>
+
+<h3>Posts【2026-07-24 実装】</h3>
+<pre>
+postId (PK)
+spotId
+userId（固定値 "user-001"。Cognito未実装のため）
+content
+imageUrl（任意）
+fishCaught（任意）
+createdAt
+</pre>
+<div class="box">
+PKは postId 単一キー（要件定義ドラフトの spotId(PK)+createdAt(SK) 複合キー案とは異なる。
+詳細はDEテーブル設計.html参照）。
+</div>
 
 ---
 

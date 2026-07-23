@@ -22,6 +22,8 @@ export interface Spot {
   prefecture?: string;
   /** スポットの説明文（省略可） */
   description?: string;
+  /** スポット写真のURL（省略可・S3にアップロードされた画像を指す） */
+  imageUrl?: string;
 }
 
 /**
@@ -117,4 +119,16 @@ export interface BatchStatus {
   message?: string;
   /** バッチで処理したスポット数（省略可） */
   processedCount?: number;
+}
+
+/**
+ * S3への直接アップロード用に発行される署名付きURLのレスポンス。
+ * uploadUrl に画像バイナリをPUTし、完了後は publicUrl を
+ * Post.imageUrl / Spot.imageUrl として保存する。
+ */
+export interface UploadPresignResponse {
+  /** S3への署名付きPUT URL（有効期限5分） */
+  uploadUrl: string;
+  /** アップロード完了後に画像を参照するための公開URL */
+  publicUrl: string;
 }

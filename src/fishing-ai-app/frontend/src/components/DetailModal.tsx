@@ -6,9 +6,13 @@
  * Google Maps ナビとお気に入りトグルボタンを提供する。
  */
 
-import { X, Navigation2, Heart, Fish, Cloud, Waves, MapPin, Banknote } from "lucide-react";
+import { useRef, useState } from "react";
+import { Link } from "react-router-dom";
+import { X, Navigation2, Heart, Fish, Cloud, Waves, MapPin, Banknote, Camera, MessageSquare } from "lucide-react";
 import type { Recommendation } from "../types";
 import { getScoreColor, getScoreLabel } from "../utils/score";
+import { getPresignedUploadUrl, uploadImageToS3, updateSpotImage } from "../api/client";
+import { ImagePreviewPopover } from "./ImagePreviewPopover";
 
 /**
  * DetailModal コンポーネントの Props。
@@ -38,12 +42,42 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
   /** スコアに応じたアクセントカラー */
   const scoreColor = getScoreColor(rec.score);
 
+  /** アップロード済みのスポット写真URL（アップロード直後の即時反映用にローカルで保持） */
+  const [imageUrl, setImageUrl] = useState(rec.spot?.imageUrl);
+  /** アップロード中フラグ */
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   /**
    * Google Maps のルート案内を新しいタブで開く。
    */
   const openNav = () => {
     const url = `https://www.google.com/maps/dir/?api=1&destination=${rec.spot?.lat ?? 0},${rec.spot?.lng ?? 0}`;
     window.open(url, "_blank");
+  };
+
+  /**
+   * 選択された画像ファイルをS3へアップロードし、スポットの写真として設定する。
+   * 署名付きURL発行 → S3へ直接PUT → Spotsテーブルのimageurlを更新、の順に行う。
+   *
+   * @param {React.ChangeEvent<HTMLInputElement>} e - ファイル選択イベント
+   */
+  const handlePhotoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const { uploadUrl, publicUrl } = await getPresignedUploadUrl(file.type);
+      await uploadImageToS3(uploadUrl, file);
+      await updateSpotImage(rec.spotId, publicUrl);
+      setImageUrl(publicUrl);
+    } catch {
+      // アップロード失敗時は静かに諦める（UI上の写真は変更しない）
+    } finally {
+      setUploading(false);
+      e.target.value = "";
+    }
   };
 
   return (
@@ -58,7 +92,10 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
 
         {/* ヒーローセクション: スポット名とスコアを大きく表示 */}
         <div className="modal-hero" style={{ borderBottom: `3px solid ${scoreColor}` }}>
-          <h2 className="modal-spot-name">{rec.spot?.name ?? rec.spotId}</h2>
+          {/* スポット名: hover(PC)/長押し(スマホ)でスポット写真をプレビュー表示 */}
+          <ImagePreviewPopover imageUrl={imageUrl}>
+            <h2 className="modal-spot-name">{rec.spot?.name ?? rec.spotId}</h2>
+          </ImagePreviewPopover>
           <div className="modal-score" style={{ color: scoreColor }}>
             <span className="modal-score-num">{Math.round(rec.score)}</span>
             <span className="modal-score-label">/ 100 — {getScoreLabel(rec.score)}</span>
@@ -76,10 +113,12 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
           <h3 className="modal-section-title">釣れる魚</h3>
           <div className="modal-fish-tags">
             {rec.fishTypes.map((f) => (
-              <span key={f} className="fish-tag large">
-                <Fish size={14} />
-                {f}
-              </span>
+              <ImagePreviewPopover key={f} fishName={f}>
+                <span className="fish-tag large">
+                  <Fish size={14} />
+                  {f}
+                </span>
+              </ImagePreviewPopover>
             ))}
           </div>
         </div>
@@ -124,6 +163,25 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
             <Heart size={16} fill={isFavorite ? "currentColor" : "none"} />
             {isFavorite ? "保存済み" : "お気に入りに追加"}
           </button>
+
+          {/* スポット写真の設定: 選択したファイルをS3へアップロードしてスポットに紐付ける */}
+          <button className="btn-nav" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <Camera size={16} />
+            {uploading ? "アップロード中..." : imageUrl ? "写真を変更" : "スポット写真を設定"}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            style={{ display: "none" }}
+            onChange={handlePhotoSelect}
+          />
+
+          {/* このスポットの投稿一覧へ */}
+          <Link to={`/posts?spotId=${rec.spotId}`} className="btn-nav">
+            <MessageSquare size={16} />
+            このスポットの投稿を見る
+          </Link>
         </div>
       </div>
     </div>

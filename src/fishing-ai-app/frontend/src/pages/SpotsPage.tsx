@@ -12,6 +12,7 @@ import { getRecommendations } from "../api/client";
 import type { Spot, Recommendation } from "../types";
 import { Navigation2, Fish } from "lucide-react";
 import { getScoreColor, getScoreLabel } from "../utils/score";
+import { ImagePreviewPopover } from "../components/ImagePreviewPopover";
 
 /**
  * スポット一覧ページコンポーネント。
@@ -69,14 +70,19 @@ export const SpotsPage = () => {
                 {/* スコアに応じた色の左端バー */}
                 <div className="spot-score-bar" style={{ background: color }} />
                 <div>
-                  <p className="spot-row-name">{spot.name}</p>
+                  {/* スポット名: hover(PC)/長押し(スマホ)でスポット写真をプレビュー表示 */}
+                  <ImagePreviewPopover imageUrl={spot.imageUrl}>
+                    <p className="spot-row-name">{spot.name}</p>
+                  </ImagePreviewPopover>
                   {/* おすすめデータがある場合のみ魚種タグを表示 */}
                   {rec && (
                     <div className="spot-row-fish">
                       {rec.fishTypes.map((f) => (
-                        <span key={f} className="fish-tag sm">
-                          <Fish size={10} />{f}
-                        </span>
+                        <ImagePreviewPopover key={f} fishName={f}>
+                          <span className="fish-tag sm">
+                            <Fish size={10} />{f}
+                          </span>
+                        </ImagePreviewPopover>
                       ))}
                     </div>
                   )}

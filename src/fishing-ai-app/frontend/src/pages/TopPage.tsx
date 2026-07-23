@@ -11,9 +11,11 @@ import { useRecommendations } from "../hooks/useRecommendations";
 import { useFavorites } from "../hooks/useFavorites";
 import { RecommendationCard } from "../components/RecommendationCard";
 import { AiBatchButton } from "../components/AiBatchButton";
+import { SpotDiscoveryButton } from "../components/SpotDiscoveryButton";
 import { DetailModal } from "../components/DetailModal";
+import { NearbyModal } from "../components/NearbyModal";
 import type { Recommendation } from "../types";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, LocateFixed } from "lucide-react";
 
 /**
  * トップページコンポーネント。
@@ -35,6 +37,9 @@ export const TopPage = () => {
   /** 詳細モーダルで表示中のおすすめデータ。null のときモーダルは非表示 */
   const [selected, setSelected] = useState<Recommendation | null>(null);
 
+  /** 「現在地から探す」モーダルの表示状態 */
+  const [showNearby, setShowNearby] = useState(false);
+
   /** スコア上位3件（TOP3グリッドに表示） */
   const top3 = recommendations.slice(0, 3);
 
@@ -48,15 +53,23 @@ export const TopPage = () => {
           <h1 className="page-title">今日の釣りどこへ行く？</h1>
           <p className="page-sub">AIがあなたの釣行を最適化します</p>
         </div>
-        {/* 手動更新ボタン: クリックでおすすめデータを再取得 */}
-        <button className="icon-btn" onClick={refetch} title="更新" disabled={loading}>
-          <RefreshCw size={18} className={loading ? "spin" : ""} />
-        </button>
+        <div className="page-header-actions">
+          {/* 現在地からのおすすめ（サブ機能）: メインのTOP3とは別に現在地基準で再ランキング表示 */}
+          <button className="icon-btn" onClick={() => setShowNearby(true)} title="現在地から探す">
+            <LocateFixed size={18} />
+          </button>
+          {/* 手動更新ボタン: クリックでおすすめデータを再取得 */}
+          <button className="icon-btn" onClick={refetch} title="更新" disabled={loading}>
+            <RefreshCw size={18} className={loading ? "spin" : ""} />
+          </button>
+        </div>
       </div>
 
       {/* AI実行ボタンセクション: クリックでバッチ処理を手動トリガー */}
       <div className="ai-batch-section">
         <AiBatchButton status={batchStatus} onRun={triggerAiBatch} />
+        {/* 新規スポット自動発見: Google Places APIで新しい釣りスポット候補を探索する */}
+        <SpotDiscoveryButton />
       </div>
 
       {/* エラー発生時のエラーバナー */}
@@ -127,6 +140,17 @@ export const TopPage = () => {
           isFavorite={isFavorite(selected.spotId)}
           onClose={() => setSelected(null)}    /* 閉じると selected をリセット */
           onToggleFavorite={toggleFavorite}
+        />
+      )}
+
+      {/* 現在地から探すモーダル: showNearby が true のときのみ表示 */}
+      {showNearby && (
+        <NearbyModal
+          recommendations={recommendations}
+          isFavorite={isFavorite}
+          onToggleFavorite={toggleFavorite}
+          onSelect={setSelected}
+          onClose={() => setShowNearby(false)}
         />
       )}
     </div>
