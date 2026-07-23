@@ -10,11 +10,11 @@ POST /admin/run-ai-batch による手動実行で起動される。
     1. Spots テーブルから全スポットを取得
     2. 各スポットの天気・潮汐スコアを取得（外部API or シミュレーション）
     3. ルールベースのスコア式でスコアを計算
-    4. Claude API で推薦理由（reason）を日本語生成
+    4. Gemini API で推薦理由（reason）を日本語生成
     5. Recommendations テーブルに結果を保存
 
 Requirements:
-    - 環境変数 SPOTS_TABLE / RECOMMENDATIONS_TABLE / CLAUDE_API_KEY が設定済みであること
+    - 環境変数 SPOTS_TABLE / RECOMMENDATIONS_TABLE / GEMINI_API_KEY が設定済みであること
     - Lambda 実行ロールに DynamoDB の読み書き権限があること
     - anthropic パッケージがインストール済みであること（pip install anthropic）
 """
@@ -27,16 +27,25 @@ from datetime import datetime, timezone
 from typing import Any
 
 import boto3
-import anthropic
+import google.generativeai as genai
+from botocore.exceptions import ClientError
 
 # DynamoDB リソースを初期化
 # リージョンは環境変数から取得（デフォルト: 東京）
 dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))  # type: ignore[attr-defined]
 
+ssm = boto3.client(
+    "ssm",
+    region_name=os.environ.get("AWS_REGION", "ap-northeast-1"),
+)
+
 # 環境変数からテーブル名・APIキーを取得
 SPOTS_TABLE           = os.environ.get("SPOTS_TABLE", "fishing-spots")
 RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recommendations")
-CLAUDE_API_KEY        = os.environ.get("CLAUDE_API_KEY", "")
+GEMINI_API_KEY = os.environ.get(
+    "GEMINI_API_KEY_PARAM",
+    "/fishing-ai/gemini-api-key",
+)
 
 # CORS ヘッダー（手動実行APIからのレスポンスに付与）
 CORS = {
@@ -59,6 +68,19 @@ def _get_table(name: str) -> Any:
     """
     return dynamodb.Table(name)  # type: ignore[attr-defined]
 
+def _get_gemini_api_key() -> str:
+    """SSM Parameter StoreからGemini APIキーを取得する。"""
+
+    try:
+        response = ssm.get_parameter(
+            Name=GEMINI_API_KEY,
+            WithDecryption=True,
+        )
+        return response["Parameter"]["Value"]
+
+    except ClientError as e:
+        print(f"SSM get_parameter error: {e}")
+        return ""
 
 # ─── Score formula ───────────────────────────────────────────────────
 def calc_score(fish_prob: float, weather: float, tide: float,
@@ -153,13 +175,13 @@ def estimate_fish_probability(spot_name: str, fish_types: list[str]) -> float:
     return min(95.0, max(20.0, base + random.uniform(-10, 10)))
 
 
-# ─── AI reason generation via Claude ─────────────────────────────────
+# ─── AI reason generation via Gemini ─────────────────────────────────
 def generate_reason(spot_name: str, fish_types: list[str], score: float,
                     weather_score: float, tide_score: float,
                     distance_km: float) -> str:
-    """Claude API を使って釣りスポットの推薦理由を日本語で生成する。
+    """Gemini API を使って釣りスポットの推薦理由を日本語で生成する。
 
-    CLAUDE_API_KEY が未設定の場合はフォールバック文言を返す。
+    GEMINI_API_KEY が未設定の場合はフォールバック文言を返す。
     API エラー時もフォールバック文言を返し、Lambda を継続させる。
 
     Args:
@@ -173,11 +195,15 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
     Returns:
         str: 釣りスポットの推薦理由（2〜3文の日本語）
     """
-    if not CLAUDE_API_KEY:
+    api_key = _get_gemini_api_key()
+    if not api_key:
         return f"{spot_name}は現在の天気・潮汐条件が良好で、{', '.join(fish_types)}の釣果が期待できます。"
 
-    client = anthropic.Anthropic(api_key=CLAUDE_API_KEY)
-    prompt = f"""あなたは釣りの専門家です。以下のデータを元に、釣り人向けに「なぜこのスポットが今日おすすめか」を2〜3文の自然な日本語で説明してください。専門用語を使いつつも親しみやすい文体で。
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel("gemini-1.5-flash")
+        
+        prompt = f"""あなたは釣りの専門家です。以下のデータを元に、釣り人向けに「なぜこのスポットが今日おすすめか」を2〜3文の自然な日本語で説明してください。専門用語を使いつつも親しみやすい文体で。
 
 スポット名: {spot_name}
 期待できる魚種: {', '.join(fish_types)}
@@ -188,20 +214,11 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
 
 説明文のみ出力してください（前置き不要）:"""
 
-    try:
-        message = client.messages.create(
-            model="claude-opus-4-6",
-            max_tokens=256,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        # TextBlock のみ対象にして text を取得
-        for block in message.content:
-            if block.type == "text":
-                return block.text.strip()  # type: ignore[union-attr]
-        return f"{spot_name}は現在のコンディションが良好です。{', '.join(fish_types)}の釣果が見込めます。"
+        response = model.generate_content(prompt)
+        return response.text.strip()
 
     except Exception as e:
-        print(f"Claude API error: {e}")
+        print(f"Gemini API error: {e}")
         return f"{spot_name}は現在のコンディションが良好です。{', '.join(fish_types)}の釣果が見込めます。"
 
 

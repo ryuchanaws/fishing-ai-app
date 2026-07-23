@@ -1,0 +1,5 @@
+# requirements.txt (Batch Lambda)
+# AWS SDK for Python。DynamoDB の読み書きと SSM Parameter Store からのキー取得に使用する。
+boto3
+# Google Gemini API クライアント。推薦理由（reason）の日本語文章生成に使用する。
+google-generativeai

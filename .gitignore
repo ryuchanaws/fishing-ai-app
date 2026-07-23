@@ -3,3 +3,9 @@ PythonWorkspace/
 tests/
 node_modules/
 src/**/node_modules/
+# SAM build output（sam build のたびに再生成される）
+src/**/.aws-sam/
+# Python 仮想環境（環境依存のバイナリを含むため）
+src/**/.venv/
+# フロントエンドの build 成果物
+src/**/dist/

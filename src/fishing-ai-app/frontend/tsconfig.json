@@ -1,21 +1,42 @@
 {
+  // tsconfig.json
+  // Vite + React 向け TypeScript コンパイラ設定。
+  // "noEmit": true のため、実際のトランスパイルは Vite（esbuild）が担当し、
+  // tsc は型チェック専用として `npm run build` の前段で実行される。
   "compilerOptions": {
+    // コンパイル後のJSターゲット。モダンブラウザ想定でES2020を指定
     "target": "ES2020",
+    // クラスフィールドをネイティブの Define セマンティクスで初期化する
     "useDefineForClassFields": true,
+    // 利用可能なAPIの型定義。DOM系はブラウザ実行のため必須
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    // 出力モジュール形式。Vite のバンドラー前提でESM固定
     "module": "ESNext",
+    // node_modules内の型定義ファイルの型チェックをスキップしビルドを高速化
     "skipLibCheck": true,
+    // Viteのバンドラーに合わせたモジュール解決アルゴリズム
     "moduleResolution": "bundler",
+    // import文で拡張子付き(.ts/.tsx)の指定を許可する
     "allowImportingTsExtensions": true,
+    // .json ファイルを import 可能にする
     "resolveJsonModule": true,
+    // 各ファイルを独立してトランスパイル可能な構造に限定する（Viteのesbuild制約に合わせる）
     "isolatedModules": true,
+    // tsc はコード出力を行わず型チェックのみ実施する（実際の出力はVite/esbuildが担当）
     "noEmit": true,
+    // React 17+ の新しいJSX変換（import React不要）
     "jsx": "react-jsx",
+    // 厳格な型チェックを全般的に有効化
     "strict": true,
+    // 未使用のローカル変数を許容する（開発中の一時的なコードを妨げないため）
     "noUnusedLocals": false,
+    // 未使用の関数引数を許容する
     "noUnusedParameters": false,
+    // switch文でのフォールスルーを検知してエラーにする
     "noFallthroughCasesInSwitch": true,
+    // Vite が提供するクライアント側の型定義（import.meta.env 等）を読み込む
     "types": ["vite/client"]
   },
+  // 型チェック対象は src ディレクトリ配下のみ
   "include": ["src"]
 }

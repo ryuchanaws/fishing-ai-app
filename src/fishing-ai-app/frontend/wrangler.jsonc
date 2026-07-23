@@ -1,0 +1,18 @@
+{
+  // wrangler.jsonc
+  // Cloudflare Pages/Workers 用のデプロイ設定（wrangler CLI が参照する）。
+  // AWS(S3+CloudFront) の代替として、スマホ含む端末から
+  // アプリにアクセスできるようにするためのホスティング設定。
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // Cloudflare 上のプロジェクト名（デプロイ先URLの一部にもなる）
+  "name": "ryu-chan-fish",
+  // Workers ランタイムの互換性日付（この日付以降の挙動で実行される）
+  "compatibility_date": "2026-06-29",
+  "assets": {
+    // デプロイ対象の静的ファイル格納ディレクトリ（vite build の出力先と一致させる）
+    "directory": "dist",
+    // 存在しないパスへのアクセス時、index.html を返す
+    // React Router の SPA ルーティング（/map, /spots 等）を機能させるために必須
+    "not_found_handling": "single-page-application"
+  }
+}

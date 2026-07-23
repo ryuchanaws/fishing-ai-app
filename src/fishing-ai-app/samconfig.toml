@@ -1,0 +1,22 @@
+# samconfig.toml
+# AWS SAM CLI のデフォルト設定ファイル。
+# `sam deploy` 実行時にコマンドライン引数を省略できるようにする。
+version = 0.1
+
+[default.deploy.parameters]
+# CloudFormation スタック名（AWSコンソール上での表示名）
+stack_name = "fishing-ai-app"
+# デプロイ用アーティファクトを格納するS3バケットを自動作成・解決する
+resolve_s3 = true
+# S3バケット内のオブジェクトキーに付与するプレフィックス
+s3_prefix = "fishing-ai-app"
+# デプロイ先リージョン（東京）
+region = "ap-northeast-1"
+# IAMロール等を作成するために必要な明示的な許可
+capabilities = "CAPABILITY_IAM"
+# コンテナイメージ形式のLambdaは未使用のため空
+image_repositories = []
+
+[default.global.parameters]
+# 全SAMコマンド（build/deploy/local等）共通のデフォルトリージョン
+region = "ap-northeast-1"
