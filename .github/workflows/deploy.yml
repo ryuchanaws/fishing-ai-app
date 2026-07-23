@@ -19,6 +19,16 @@ env:
   S3_BUCKET: ${{ secrets.S3_BUCKET }}
   CLOUDFRONT_ID: ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }}
 
+# ─────────────────────────────────────────────
+# アプリ本体はリポジトリ直下ではなく src/fishing-ai-app/ にあるため、
+# 全 run ステップのカレントディレクトリをそこに固定する
+# （GitHub Actions は .github/workflows/ をリポジトリ直下でしか検出しないため、
+#   このファイル自体はリポジトリ直下に置く必要がある点に注意）
+# ─────────────────────────────────────────────
+defaults:
+  run:
+    working-directory: src/fishing-ai-app
+
 jobs:
   # ═══════════════════════════════════════════
   # JOB 1: バックエンドデプロイ（Lambda + DynamoDB）
@@ -64,7 +74,8 @@ jobs:
             --capabilities CAPABILITY_IAM \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
-            --region ${{ env.AWS_REGION }}
+            --region ${{ env.AWS_REGION }} \
+            --resolve-s3
 
   # ═══════════════════════════════════════════
   # JOB 2: フロントエンドデプロイ（React → S3 + CloudFront）
@@ -83,17 +94,18 @@ jobs:
 
       # Node.js 20 をセットアップ
       # package-lock.json をキーにしてnpmキャッシュを活用
+      # cache-dependency-path はリポジトリ直下からの相対パスで指定する必要がある
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
           cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: src/fishing-ai-app/frontend/package-lock.json
 
       # npm ci でパッケージをクリーンインストール
       # npm install より厳密でCI環境に適している
       - name: Install dependencies
         run: npm ci
-        working-directory: frontend
+        working-directory: src/fishing-ai-app/frontend
 
       # Reactをプロダクションビルド
       # 環境変数はGitHub Secretsから注入
@@ -101,7 +113,7 @@ jobs:
       # VITE_GOOGLE_MAPS_KEY: Google Maps APIキー
       - name: Build
         run: npm run build
-        working-directory: frontend
+        working-directory: src/fishing-ai-app/frontend
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_GOOGLE_MAPS_KEY: ${{ secrets.VITE_GOOGLE_MAPS_KEY }}
