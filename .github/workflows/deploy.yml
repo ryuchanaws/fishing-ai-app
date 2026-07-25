@@ -92,12 +92,15 @@ jobs:
       # リポジトリのコードを取得
       - uses: actions/checkout@v4
 
-      # Node.js 20 をセットアップ
+      # Node.js 22 をセットアップ
+      # 2026-07-24: wrangler@4.113.0 が Node.js >=22 を要求するため 20→22 に変更
+      # （Cloudflareデプロイステップ追加時に node v20.20.2 で "Wrangler requires at least
+      #   Node.js v22.0.0" エラーになり判明）
       # package-lock.json をキーにしてnpmキャッシュを活用
       # cache-dependency-path はリポジトリ直下からの相対パスで指定する必要がある
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: src/fishing-ai-app/frontend/package-lock.json
 
