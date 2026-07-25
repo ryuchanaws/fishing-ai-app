@@ -105,6 +105,8 @@ body  {
   display: flex;
   align-items: center;
   gap: 8px;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .nav-logo  {
@@ -960,6 +962,14 @@ body  {
   padding: 14px 16px;
 }
 
+/* スポット名と削除ボタンを両端揃えで配置する行 */
+.post-header-row  {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .post-spot-name  {
   font-size: 13px;
   color: var(--accent);
@@ -1222,6 +1232,17 @@ body  {
   /* NavBar のアプリ名を非表示にしてアイコンのみ表示 */
   .nav-title  {
     display: none;
+  }
+
+  /* NavBar の各リンクもラベル文字を非表示にしてアイコンのみ表示
+     （2026-07-25追加: リンク数が6個に増え、狭い画面ではラベルが折り返して見づらかったため） */
+  .nav-link span  {
+    display: none;
+  }
+
+  /* ラベルが無くなる分、アイコンだけのボタンとして扱いやすいようパディングを調整 */
+  .nav-link  {
+    padding: 8px 10px;
   }
 
   /* モーダルのパディングを縮小 */

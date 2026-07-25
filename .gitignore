@@ -1,6 +1,5 @@
 .vscode/
 PythonWorkspace/
-tests/
 node_modules/
 src/**/node_modules/
 # SAM build output（sam build のたびに再生成される）
@@ -11,3 +10,8 @@ src/**/.venv/
 src/**/dist/
 # Python バイトコードキャッシュ（ローカルでのimport確認等で生成される）
 src/**/__pycache__/
+# Playwright の一時出力（テスト実行のたびに再生成される。VRTのベースライン画像
+# e2e/*-snapshots/ はここには含まれず、意図的にコミット対象とする）
+src/**/test-results/
+src/**/playwright-report/
+src/**/blob-report/

@@ -277,6 +277,22 @@ Resources:
             Path: /posts
             Method: POST
 
+  # DELETE /posts/{postId} — 釣果投稿を削除する
+  DeletePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: deletePostHandler
+      Handler: handlers.deletePostHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref PostsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /posts/{postId}
+            Method: DELETE
+
   # PUT /spots/{spotId}/image — スポットの写真URLを設定する
   UpdateSpotImageFunction:
     Type: AWS::Serverless::Function
@@ -362,6 +378,22 @@ Resources:
           Properties:
             Path: /chats/{chatId}
             Method: GET
+
+  # DELETE /chats/{chatId} — チャットを削除する
+  DeleteChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: deleteChatHandler
+      Handler: handlers.deleteChatHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /chats/{chatId}
+            Method: DELETE
 
   # ==============================================================
   # Lambda 関数定義（バッチ系）

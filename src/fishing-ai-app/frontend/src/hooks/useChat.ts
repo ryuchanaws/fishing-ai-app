@@ -9,7 +9,14 @@
  */
 import { useState, useCallback } from "react";
 import type { ChatMessage, ChatSummary } from "../types";
-import { sendChatMessage, getChatHistory, getChat, getPresignedUploadUrl, uploadImageToS3 } from "../api/client";
+import {
+  sendChatMessage,
+  getChatHistory,
+  getChat,
+  deleteChat as deleteChatApi,
+  getPresignedUploadUrl,
+  uploadImageToS3,
+} from "../api/client";
 
 /**
  * AIチャットを管理するカスタムフック。
@@ -122,5 +129,36 @@ export const useChat = () => {
     }
   }, []);
 
-  return { messages, chatId, sending, error, history, historyLoading, send, startNewChat, loadHistory, openChat };
+  /**
+   * チャットを削除し、履歴一覧からも取り除く。
+   * 削除したチャットが現在開いている会話だった場合は、表示中の会話もリセットする。
+   *
+   * @param {string} id - 削除対象のチャットID
+   * @returns {Promise<void>}
+   */
+  const removeChat = useCallback(
+    async (id: string) => {
+      await deleteChatApi(id);
+      setHistory((prev) => prev.filter((h) => h.chatId !== id));
+      if (chatId === id) {
+        setMessages([]);
+        setChatId(null);
+      }
+    },
+    [chatId]
+  );
+
+  return {
+    messages,
+    chatId,
+    sending,
+    error,
+    history,
+    historyLoading,
+    send,
+    startNewChat,
+    loadHistory,
+    openChat,
+    removeChat,
+  };
 };

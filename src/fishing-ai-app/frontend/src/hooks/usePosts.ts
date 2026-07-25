@@ -1,14 +1,14 @@
 /**
  * 釣果投稿の状態管理カスタムフック。
  *
- * 投稿一覧の取得・新規投稿の作成を提供する。
+ * 投稿一覧の取得・新規投稿の作成・削除を提供する。
  * useFavorites.ts と同じ useState + useCallback + 楽観的更新のパターンを踏襲する。
  *
  * @module usePosts
  */
 import { useState, useEffect, useCallback } from "react";
 import type { Post } from "../types";
-import { getPosts, createPost } from "../api/client";
+import { getPosts, createPost, deletePost as deletePostApi } from "../api/client";
 
 /**
  * 釣果投稿を管理するカスタムフック。
@@ -18,6 +18,7 @@ import { getPosts, createPost } from "../api/client";
  * @returns {boolean}   loading     - データ取得中フラグ
  * @returns {string | null} error   - エラーメッセージ
  * @returns {Function}  submitPost  - 新規投稿を作成する関数
+ * @returns {Function}  removePost  - 投稿を削除する関数
  * @returns {Function}  refetch     - 投稿一覧を再取得する関数
  */
 export const usePosts = () => {
@@ -55,9 +56,20 @@ export const usePosts = () => {
     []
   );
 
+  /**
+   * 投稿を削除し、成功したら一覧からも取り除く。
+   *
+   * @param {string} postId - 削除対象の投稿ID
+   * @returns {Promise<void>}
+   */
+  const removePost = useCallback(async (postId: string) => {
+    await deletePostApi(postId);
+    setPosts((prev) => prev.filter((p) => p.postId !== postId));
+  }, []);
+
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
 
-  return { posts, loading, error, submitPost, refetch: fetchPosts };
+  return { posts, loading, error, submitPost, removePost, refetch: fetchPosts };
 };

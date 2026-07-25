@@ -200,6 +200,62 @@ git push origin main
 
 ---
 
+## 8. テスト（2026-07-25追加）
+
+`main` へのPull Request作成/更新のたびに `.github/workflows/test.yml` が自動実行される
+（デプロイ用の `deploy.yml` とは別ワークフロー。テストのみ行いAWS/Cloudflareへは一切デプロイしない）。
+
+### バックエンド（pytest）
+
+実AWSには接続せず、`moto` でDynamoDBをモックする。
+
+```bash
+cd src/fishing-ai-app/backend
+pip install -r requirements-dev.txt -r lambda/api/requirements.txt -r lambda/batch/requirements.txt
+pytest tests -v
+```
+
+> `backend/tests/` はSAMの各Lambda（CodeUri）ディレクトリの外に置いている
+> （中に置くとテストコードがLambdaのデプロイパッケージに巻き込まれてしまうため）。
+> `conftest.py` が `lambda/api`・`lambda/batch` を import パスに追加している。
+
+### フロントエンド ユニットテスト（Vitest）
+
+```bash
+cd src/fishing-ai-app/frontend
+npm run test
+```
+
+### フロントエンド E2E + VRT（Playwright）
+
+実AWSには接続せず、`e2e/fixtures.ts` の `mockApi()` でAPIレスポンスをモックする
+（本番データを汚さない・API利用料を発生させないため）。
+
+```bash
+cd src/fishing-ai-app/frontend
+npm run build
+npx playwright install --with-deps chromium   # 初回のみ
+npx playwright test
+```
+
+> **VRT（Visual Regression Testing）のベースライン画像について**:
+> `e2e/visual.spec.ts-snapshots/` に保存するスクリーンショットはOS・フォントレンダリングに
+> 依存するため、ローカル（Windows）で `npx playwright test --update-snapshots` して生成した
+> ものは、CI（ubuntu-latest）とファイル名ごと一致しない（Playwrightがスナップショット名に
+> OS名を含めるため）。そのため、ベースラインは **CI上で生成** する必要がある。
+> 初回はベースラインが無い状態で1回失敗するのが正常な動作。GitHub Actionsの実行結果から
+> `playwright-report` アーティファクト（失敗時のみアップロードされる）内の実際のスクリーン
+> ショットを取得し、`e2e/visual.spec.ts-snapshots/` に配置してコミットすることで、以降の
+> CI実行で差分比較が機能するようになる。
+
+### コードレビューについて
+GitHubのPR画面上でのレビュー（コメント・Approve/Request changes）は追加設定なしで利用できる。
+AIによる自動レビュー（Claude API等）は今回は見送った（PRごとに課金が発生するため）。
+マージをテスト成功まで強制ブロックしたい場合は、リポジトリの Branch protection rule 設定
+（GitHub管理者権限が必要）を別途行うこと。
+
+---
+
 ## トラブルシューティング
 
 | 症状 | 原因 | 対処 |
@@ -216,6 +272,8 @@ git push origin main
 | AI相談でカメラが起動しない | ブラウザ/OSがcapture属性に対応していない、またはHTTPS配信でない | 本番URL（CloudFront/Cloudflare、どちらもHTTPS）でアクセスしているか確認。非対応環境では自動的に通常のファイル選択にフォールバックする |
 | 「ホーム画面に追加」が出てこない | HTTPS配信でない、またはmanifest/Service Workerが読み込めていない | 本番URLでアクセスしているか確認。ブラウザの開発者ツール→Application タブで `manifest.webmanifest` と `sw.js` が正しく読めているか確認 |
 | 画像アップロードで「画像サイズが大きすぎます」と出る | ファイルが8MB（`MAX_UPLOAD_BYTES`）を超えている | 写真を圧縮するか小さいサイズで撮り直す。上限値自体を変える場合は `handlers.py` の `MAX_UPLOAD_BYTES` と `api/client.ts` の `MAX_UPLOAD_BYTES` を両方変更すること |
+| `pytest` が実AWSにアクセスしようとする（`UnrecognizedClientException`等） | `moto`のモックが有効化される前に対象モジュール（handlers.py等）がimportされ、モジュール内のboto3クライアントがモック非対応のまま生成された | `test_handlers_moto.py` の `dynamodb_tables` フィクスチャのように、`mock_aws()` を開始した後に `importlib.reload()` でモジュールを再読み込みしてからテストすること |
+| Playwright の `toHaveScreenshot` が初回から失敗する | VRTのベースライン画像が未生成（想定内の初回動作） | 上記「8. テスト」のVRT節を参照。CI上でベースラインを生成してコミットする |
 
 ---
 

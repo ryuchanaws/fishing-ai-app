@@ -2,7 +2,9 @@
 // Vite のビルド・開発サーバー設定。
 // React プラグインを有効化し、本番ビルドの出力先を指定する。
 
-import { defineConfig } from "vite";
+// defineConfig は vitest/config から読み込む（vite本来のdefineConfigの型を
+// 拡張し、下記の test ブロックの型付けを可能にするだけで、Vite本体の挙動は変わらない）
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
@@ -47,5 +49,14 @@ export default defineConfig({
     outDir: "dist",
     // ソースマップは本番では生成しない（バンドルサイズ削減・ソース非公開のため）
     sourcemap: false,
+  },
+  test: {
+    // ユニットテスト（Vitest）設定。2026-07-25追加。
+    // DOM操作を伴うコンポーネントテストのため jsdom 環境を使用する
+    environment: "jsdom",
+    globals: true,
+    setupFiles: ["./src/test/setup.ts"],
+    // e2e/（Playwright）配下はVitestの対象から除外する（実行方法が異なるため）
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });
