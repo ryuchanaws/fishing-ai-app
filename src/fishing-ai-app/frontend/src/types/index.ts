@@ -127,8 +127,13 @@ export interface BatchStatus {
  * Post.imageUrl / Spot.imageUrl として保存する。
  */
 export interface UploadPresignResponse {
-  /** S3への署名付きPUT URL（有効期限5分） */
+  /** S3への署名付きPOSTアップロード先URL（有効期限5分） */
   uploadUrl: string;
+  /**
+   * uploadUrlへのPOST時にFormDataへ含める追加フィールド
+   * （content-length-range等のアップロード条件が埋め込まれた署名情報）
+   */
+  uploadFields: Record<string, string>;
   /** アップロード完了後に画像を参照するための公開URL */
   publicUrl: string;
 }

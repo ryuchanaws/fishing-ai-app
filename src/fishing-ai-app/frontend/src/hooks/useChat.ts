@@ -50,12 +50,12 @@ export const useChat = () => {
       let imageUrl: string | undefined;
       try {
         if (file) {
-          const { uploadUrl, publicUrl } = await getPresignedUploadUrl(file.type);
-          await uploadImageToS3(uploadUrl, file);
+          const { uploadUrl, uploadFields, publicUrl } = await getPresignedUploadUrl(file.type);
+          await uploadImageToS3(uploadUrl, uploadFields, file);
           imageUrl = publicUrl;
         }
-      } catch {
-        setError("画像のアップロードに失敗しました");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "画像のアップロードに失敗しました");
         setSending(false);
         return;
       }

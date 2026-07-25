@@ -233,17 +233,25 @@ generate_score.py が discover_spots.py の run_discovery() を直接importし�
 目的：スポット写真・投稿写真のアップロードと、釣果投稿の作成
 </div>
 
-<h4>処理フロー（写真アップロード）</h4>
+<h4>処理フロー（写真アップロード）【2026-07-25 方式変更】</h4>
 <pre>
-1. フロントが POST /uploads/presign を呼び、S3への署名付きPUT URL（有効期限5分）を取得
-2. フロントがそのURLへ画像ファイルを直接PUT（Lambda/API Gatewayを経由しない。ペイロード制限回避のため）
+1. フロントが POST /uploads/presign を呼び、S3への署名付きPOSTフォーム（uploadUrl + uploadFields、有効期限5分）を取得
+2. フロントがそのフォームへ画像ファイルをmultipart/form-dataでPOST（Lambda/API Gatewayを経由しない。ペイロード制限回避のため）
 3. アップロード完了後、公開URL（publicUrl）を
    PUT /spots/{spotId}/image （スポット写真）または
-   POST /posts のimageUrl（投稿写真）として保存
+   POST /posts のimageUrl（投稿写真）または
+   POST /chat のimageUrl（チャット添付）として保存
 </pre>
 
 <div class="box">
 アップロード先S3バケット（UploadsBucket）はGetObjectのみ公開許可、書き込みは署名付きURL経由のみに限定している。
+</div>
+
+<div class="box">
+【2026-07-25】当初は `generate_presigned_url("put_object")` による単純な署名付きPUT URLだったが、
+URL自体にサイズ制限を埋め込めずクライアントが任意サイズをアップロードできる欠陥があった。
+`generate_presigned_post` に変更し、Conditions に `["content-length-range", 1, 8388608]`（8MB）を指定することで
+S3側にアップロード上限を強制させている。
 </div>
 
 <h3>postChatHandler / getChatsHandler / getChatHandler【2026-07-25 追加】</h3>

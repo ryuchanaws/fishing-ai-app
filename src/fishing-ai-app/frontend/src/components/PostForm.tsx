@@ -59,8 +59,8 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
     try {
       let imageUrl: string | undefined;
       if (file) {
-        const { uploadUrl, publicUrl } = await getPresignedUploadUrl(file.type);
-        await uploadImageToS3(uploadUrl, file);
+        const { uploadUrl, uploadFields, publicUrl } = await getPresignedUploadUrl(file.type);
+        await uploadImageToS3(uploadUrl, uploadFields, file);
         imageUrl = publicUrl;
       }
 
@@ -71,8 +71,8 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
 
       await onSubmit({ spotId, content: content.trim(), imageUrl, fishCaught });
       onClose();
-    } catch {
-      setError("投稿に失敗しました。もう一度お試しください");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "投稿に失敗しました。もう一度お試しください");
     } finally {
       setSubmitting(false);
     }

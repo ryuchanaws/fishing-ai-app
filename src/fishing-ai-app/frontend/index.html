@@ -20,6 +20,17 @@
       絵文字（🎣）をそのままアイコンとして使用
     -->
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎣</text></svg>" />
+
+    <!--
+      PWA関連メタタグ（2026-07-25追加）
+      manifest.webmanifest と Service Worker の登録は vite-plugin-pwa が
+      ビルド時に自動注入するため、ここでは iOS のホーム画面追加対応のみ手動で用意する
+      （iOSはWeb App Manifestのicons指定だけでは反映されないため apple-touch-icon が必要）
+    -->
+    <meta name="theme-color" content="#00c896" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
   </head>
   <body>
     <!-- React のマウント先 -->
