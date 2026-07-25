@@ -16,13 +16,22 @@ import pytest
 from moto import mock_aws
 
 
-def _api_event(body: dict | None = None, path_params: dict | None = None) -> dict:
-    """API Gatewayイベントの最小限のダミーを組み立てる。"""
-    return {
+def _api_event(
+    body: dict | None = None, path_params: dict | None = None, user_id: str | None = None
+) -> dict:
+    """API Gatewayイベントの最小限のダミーを組み立てる。
+
+    user_id を指定すると、CognitoAuthorizerを通過した場合と同じ形の
+    requestContext.authorizer.claims.sub を持つイベントを作る。
+    """
+    event: dict = {
         "body": json.dumps(body) if body is not None else None,
         "pathParameters": path_params,
         "queryStringParameters": None,
     }
+    if user_id is not None:
+        event["requestContext"] = {"authorizer": {"claims": {"sub": user_id}}}
+    return event
 
 
 @pytest.fixture
@@ -53,6 +62,18 @@ def dynamodb_tables():
             KeySchema=[
                 {"AttributeName": "userId", "KeyType": "HASH"},
                 {"AttributeName": "chatId", "KeyType": "RANGE"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        client.create_table(
+            TableName=os.environ["USAGE_TABLE"],
+            AttributeDefinitions=[
+                {"AttributeName": "userId", "AttributeType": "S"},
+                {"AttributeName": "dateKey", "AttributeType": "S"},
+            ],
+            KeySchema=[
+                {"AttributeName": "userId", "KeyType": "HASH"},
+                {"AttributeName": "dateKey", "KeyType": "RANGE"},
             ],
             BillingMode="PAY_PER_REQUEST",
         )
@@ -92,6 +113,43 @@ def test_delete_post_without_id_returns_400(dynamodb_tables):
     assert resp["statusCode"] == 400
 
 
+def test_delete_post_by_other_user_returns_403(dynamodb_tables):
+    """他人（別userId）の投稿を削除しようとすると403になり、投稿は消えない。"""
+    handlers = dynamodb_tables
+
+    create_resp = handlers.postPostsHandler(
+        _api_event({"spotId": "spot-001", "content": "user-aの投稿"}, user_id="user-a"),
+        None,
+    )
+    post_id = json.loads(create_resp["body"])["post"]["postId"]
+    assert json.loads(create_resp["body"])["post"]["userId"] == "user-a"
+
+    forbidden_resp = handlers.deletePostHandler(
+        _api_event(path_params={"postId": post_id}, user_id="user-b"), None
+    )
+    assert forbidden_resp["statusCode"] == 403
+
+    list_resp = handlers.getPostsHandler(_api_event(), None)
+    items = json.loads(list_resp["body"])["items"]
+    assert any(p["postId"] == post_id for p in items)
+
+
+def test_delete_post_by_owner_succeeds(dynamodb_tables):
+    """投稿者本人（同じuserId）による削除は成功する。"""
+    handlers = dynamodb_tables
+
+    create_resp = handlers.postPostsHandler(
+        _api_event({"spotId": "spot-001", "content": "user-aの投稿"}, user_id="user-a"),
+        None,
+    )
+    post_id = json.loads(create_resp["body"])["post"]["postId"]
+
+    delete_resp = handlers.deletePostHandler(
+        _api_event(path_params={"postId": post_id}, user_id="user-a"), None
+    )
+    assert delete_resp["statusCode"] == 200
+
+
 def test_chat_lifecycle_seed_then_delete(dynamodb_tables):
     """（Gemini呼び出しを避けるためDBへ直接シードした）チャットを取得→削除→404になることを確認する。"""
     handlers = dynamodb_tables
@@ -122,3 +180,31 @@ def test_delete_chat_without_id_returns_400(dynamodb_tables):
 
     resp = handlers.deleteChatHandler(_api_event(path_params={}), None)
     assert resp["statusCode"] == 400
+
+
+def test_daily_usage_within_limit_allows_calls(dynamodb_tables):
+    """上限に達するまでは _check_and_increment_daily_usage が True を返し続ける。"""
+    handlers = dynamodb_tables
+
+    for _ in range(3):
+        assert handlers._check_and_increment_daily_usage("user-a", "chat", 3) is True
+
+
+def test_daily_usage_exceeding_limit_returns_false(dynamodb_tables):
+    """上限を超えた回数目の呼び出しはFalseを返す（Gemini呼び出しをスキップさせるため）。"""
+    handlers = dynamodb_tables
+
+    for _ in range(3):
+        handlers._check_and_increment_daily_usage("user-a", "chat", 3)
+
+    assert handlers._check_and_increment_daily_usage("user-a", "chat", 3) is False
+
+
+def test_daily_usage_is_per_user(dynamodb_tables):
+    """カウンタはuserId単位で独立している（他人の利用で自分の枠が減らない）。"""
+    handlers = dynamodb_tables
+
+    for _ in range(3):
+        handlers._check_and_increment_daily_usage("user-a", "chat", 3)
+
+    assert handlers._check_and_increment_daily_usage("user-b", "chat", 3) is True

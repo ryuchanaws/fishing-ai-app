@@ -40,20 +40,20 @@ th { background:#eef3f8; }
 <h2>2. Lambda一覧（API系）</h2>
 
 <table>
-<tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
-<tr><td>getRecommendationsHandler</td><td>TOP3取得</td><td>API Gateway</td></tr>
-<tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td></tr>
-<tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td></tr>
-<tr><td>createPostHandler【2026-07-24 追加】</td><td>釣果投稿の作成</td><td>API Gateway（POST /posts）</td></tr>
-<tr><td>deletePostHandler【2026-07-25 追加】</td><td>釣果投稿の削除</td><td>API Gateway（DELETE /posts/{postId}）</td></tr>
-<tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td></tr>
-<tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td></tr>
-<tr><td>updateSpotImageHandler【2026-07-24 追加】</td><td>スポット写真URLの設定</td><td>API Gateway（PUT /spots/{spotId}/image）</td></tr>
-<tr><td>presignUploadHandler【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td><td>API Gateway（POST /uploads/presign）</td></tr>
-<tr><td>postChatHandler【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信・Gemini応答生成</td><td>API Gateway（POST /chat）</td></tr>
-<tr><td>getChatsHandler【2026-07-25 追加】</td><td>チャット履歴一覧取得</td><td>API Gateway（GET /chats）</td></tr>
-<tr><td>getChatHandler【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td><td>API Gateway（GET /chats/{chatId}）</td></tr>
-<tr><td>deleteChatHandler【2026-07-25 追加】</td><td>チャットの削除</td><td>API Gateway（DELETE /chats/{chatId}）</td></tr>
+<tr><th>関数名</th><th>役割</th><th>トリガー</th><th>認証【2026-07-26追加】</th></tr>
+<tr><td>getRecommendationsHandler</td><td>TOP3取得</td><td>API Gateway</td><td>不要</td></tr>
+<tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td><td>不要</td></tr>
+<tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td><td>不要</td></tr>
+<tr><td>createPostHandler【2026-07-24 追加】</td><td>釣果投稿の作成</td><td>API Gateway（POST /posts）</td><td>必須</td></tr>
+<tr><td>deletePostHandler【2026-07-25 追加】</td><td>釣果投稿の削除</td><td>API Gateway（DELETE /posts/{postId}）</td><td>必須</td></tr>
+<tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td><td>必須</td></tr>
+<tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td><td>必須</td></tr>
+<tr><td>updateSpotImageHandler【2026-07-24 追加】</td><td>スポット写真URLの設定</td><td>API Gateway（PUT /spots/{spotId}/image）</td><td>必須</td></tr>
+<tr><td>presignUploadHandler【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td><td>API Gateway（POST /uploads/presign）</td><td>必須</td></tr>
+<tr><td>postChatHandler【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信・Gemini応答生成（2026-07-26: 1日あたり利用回数の上限チェックを追加）</td><td>API Gateway（POST /chat）</td><td>必須</td></tr>
+<tr><td>getChatsHandler【2026-07-25 追加】</td><td>チャット履歴一覧取得</td><td>API Gateway（GET /chats）</td><td>必須</td></tr>
+<tr><td>getChatHandler【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td><td>API Gateway（GET /chats/{chatId}）</td><td>必須</td></tr>
+<tr><td>deleteChatHandler【2026-07-25 追加】</td><td>チャットの削除</td><td>API Gateway（DELETE /chats/{chatId}）</td><td>必須</td></tr>
 </table>
 
 ---
@@ -63,9 +63,9 @@ th { background:#eef3f8; }
 <table>
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
 <tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
-<tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch）</td></tr>
+<tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch、2026-07-26〜認証必須）</td></tr>
 <tr><td>discoverSpotsBatch【2026-07-24 追加、同日中に役割変更】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加</td><td>adminRunSpotDiscovery経由のみ（自動スケジュールは廃止）</td></tr>
-<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery）</td></tr>
+<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery、2026-07-26〜認証必須）</td></tr>
 </table>
 
 <div class="box">
@@ -287,6 +287,17 @@ GET /chats/{chatId} は履歴から会話を再開する際に全メッセージ
 次にメッセージを送信した時点で初めて新規チャットとして保存される。
 </div>
 
+<div class="box">
+【2026-07-26追加】友人にアプリを共有し複数人が使うようになったことで、Gemini API呼び出し（＝課金）が
+想定外に増えるリスクが生じた。認証実装により実ユーザーIDが取得できるようになったことを利用し、
+postChatHandlerの冒頭でGemini呼び出し前に <code>_check_and_increment_daily_usage(user_id, "chat", DAILY_CHAT_LIMIT)</code>
+を呼ぶようにした。UsageTable（userId + dateKey複合キー、dateKeyは"chat#2026-07-26"の形式）への
+<code>update_item</code>（ADD式によるアトミック加算）で当日のカウントを取得・加算し、
+1日30件（DAILY_CHAT_LIMIT）を超えていれば429（<code>{"error": "rate_limited", ...}</code>）を返して
+Geminiを呼ばずに終了する。UsageTableの各アイテムにはTTL（翌々日ごろ）を設定しており、
+DynamoDB側で自動的に古いカウンタが削除されるため、明示的なクリーンアップ処理は不要。
+</div>
+
 <h2>5. 非機能要件</h2>
 
 <ul>
@@ -301,15 +312,55 @@ GET /chats/{chatId} は履歴から会話を再開する際に全メッセージ
 
 <ul>
 <li>IAM最小権限</li>
-<li>Cognito認証必須</li>
+<li>Cognito認証必須（操作系エンドポイントのみ）</li>
 <li>API Gateway認証制御</li>
 </ul>
 
 <div class="box">
-【2026-07-24 時点】Cognito認証は引き続き未実装。個人利用中心のため userId は "user-001" 固定で運用しており、
-投稿機能（createPostHandler）もこの固定ユーザーで動作する。認証実装は今回のスコープから意図的に外し、
-他の機能（現在地からのおすすめ・画像機能・投稿・新規スポット自動発見）を先に実装したうえで
-最後に対応する方針とした。
+【2026-07-24 時点・経緯】Cognito認証は当初未実装で、個人利用中心を想定し userId は "user-001" 固定で
+運用していた。他の機能（現在地からのおすすめ・画像機能・投稿・新規スポット自動発見）を先に実装したうえで
+最後に対応する方針としていた。
+</div>
+
+<div class="box">
+【2026-07-26 実装】友人にアプリを共有した結果、固定userIdの限界（全員のお気に入り・AI相談履歴が混ざる、
+投稿削除に所有者チェックが無い）が実害になったため、Cognito User Pool + Google IdP（Hosted UI）による
+Google認証を実装した。要件定義.htmlに明記の「セキュリティ：Google認証（Cognito）」に対応する。
+</div>
+
+<h3>6.1 認証範囲</h3>
+<div class="box">
+<b>閲覧は未ログインでも可能</b>（おすすめ・地図・スポット一覧・投稿一覧）。
+<b>操作（お気に入り・投稿作成/削除・AI相談・AI分析実行・新スポット探索）はログイン必須</b>という方針とした
+（誰でも見られるアプリという性質を保ちつつ、書き込み系だけを保護する狙い）。
+</div>
+
+<h3>6.2 認証フロー</h3>
+<pre>
+フロント（react-oidc-context, Authorization Code + PKCE）
+ → Cognito Hosted UI（/oauth2/authorize）へリダイレクト
+ → Hosted UI上でGoogleログイン（Cognito側のGoogle IdP連携経由）
+ → Cognitoの/oauth2/idpresponseへコールバック → 認可コードをid_tokenに交換
+ → 以後のAPIリクエストに Authorization: Bearer &lt;id_token&gt; を付与
+ → API Gateway の CognitoAuthorizer（User Pool Authorizer）がid_tokenを検証
+ → 検証成功時、Lambda側イベントに event.requestContext.authorizer.claims.sub が入る
+ → handlers.py の _get_user_id(event) がこれを実ユーザーIDとして使用
+</pre>
+
+<div class="box">
+CognitoはOIDC標準の <code>end_session_endpoint</code> をディスカバリドキュメントに含めないため、
+ログアウトは react-oidc-context の標準 <code>signoutRedirect()</code> ではなく、
+Hosted UI独自の <code>/logout</code> エンドポイントへ直接遷移する方式で実装している
+（<code>frontend/src/auth/authConfig.ts</code> の <code>cognitoSignOut()</code>）。
+</div>
+
+<h3>6.3 所有者チェック</h3>
+<div class="box">
+Favorites/Chatsテーブルは <code>userId</code> がpartition keyの一部のため、他人のuserIdでは
+そもそも該当データにアクセスできない設計（追加の所有者チェック不要）。
+一方Postsテーブルは <code>postId</code> 単一PKで所有者情報がキーに含まれないため、
+deletePostHandlerで削除前に <code>get_item</code> して投稿の <code>userId</code> と
+リクエスト元の <code>userId</code> を比較し、一致しなければ403を返す明示的なチェックを追加した。
 </div>
 
 ---

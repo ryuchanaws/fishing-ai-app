@@ -8,6 +8,7 @@
  * @module useChat
  */
 import { useState, useCallback } from "react";
+import axios from "axios";
 import type { ChatMessage, ChatSummary } from "../types";
 import {
   sendChatMessage,
@@ -78,8 +79,13 @@ export const useChat = () => {
           ...prev,
           { role: "assistant", content: result.reply, createdAt: result.updatedAt },
         ]);
-      } catch {
-        setError("AIからの応答取得に失敗しました");
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 429) {
+          // Geminiコスト管理のための1日あたり利用上限（backend: DAILY_CHAT_LIMIT）に達した場合
+          setError(err.response.data?.message ?? "本日の利用上限に達しました。明日またお試しください。");
+        } else {
+          setError("AIからの応答取得に失敗しました");
+        }
       } finally {
         setSending(false);
       }

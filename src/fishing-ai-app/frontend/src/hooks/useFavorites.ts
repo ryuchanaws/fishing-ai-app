@@ -2,16 +2,15 @@
  * お気に入りスポットの状態管理カスタムフック。
  *
  * お気に入りの取得・追加・削除・存在確認を提供する。
- * 個人利用を想定しユーザーIDは USER_ID に固定している。
+ * /favorites系エンドポイントはCognito認証必須のため、未ログイン時は
+ * APIを呼ばずに空リストを返し、トグル操作時はログイン画面へ誘導する。
  *
  * @module useFavorites
  */
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "react-oidc-context";
 import type { Favorite } from "../types";
 import { getFavorites, addFavorite, removeFavorite } from "../api/client";
-
-/** 固定ユーザーID（個人利用想定のため定数化） */
-const USER_ID = "user-001";
 
 /**
  * お気に入りスポットを管理するカスタムフック。
@@ -33,6 +32,7 @@ const USER_ID = "user-001";
  * const saved = isFavorite("spot-001"); // true | false
  */
 export const useFavorites = () => {
+  const auth = useAuth();
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -47,7 +47,7 @@ export const useFavorites = () => {
   const fetchFavorites = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getFavorites(USER_ID);
+      const data = await getFavorites();
       setFavorites(data);
     } catch {
       console.error("Failed to load favorites");
@@ -59,6 +59,8 @@ export const useFavorites = () => {
   /**
    * 指定スポットのお気に入り状態をトグルする。
    *
+   * 未ログイン時はAPIを呼ばず、Cognito Hosted UIのログイン画面へ遷移する
+   * （/favoritesはCognito認証必須のため）。
    * - 既にお気に入り登録済みの場合 → API で削除しステートからも除去
    * - 未登録の場合 → API で追加しステートにも追記
    *
@@ -67,15 +69,20 @@ export const useFavorites = () => {
    * @returns {Promise<void>}
    */
   const toggleFavorite = useCallback(async (spotId: string, memo?: string) => {
+    if (!auth.isAuthenticated) {
+      auth.signinRedirect();
+      return;
+    }
+
     const exists = favorites.some((f) => f.spotId === spotId);
     if (exists) {
-      await removeFavorite(USER_ID, spotId);
+      await removeFavorite(spotId);
       setFavorites((prev) => prev.filter((f) => f.spotId !== spotId));
     } else {
-      await addFavorite(USER_ID, spotId, memo);
-      setFavorites((prev) => [...prev, { userId: USER_ID, spotId, memo }]);
+      await addFavorite(spotId, memo);
+      setFavorites((prev) => [...prev, { userId: auth.user?.profile.sub ?? "", spotId, memo }]);
     }
-  }, [favorites]);
+  }, [favorites, auth]);
 
   /**
    * 指定スポットがお気に入り登録済みかどうかを返す。
@@ -91,12 +98,17 @@ export const useFavorites = () => {
   );
 
   /**
-   * マウント時にお気に入り一覧を初回取得する。
-   * fetchFavorites が再生成された場合も再実行される。
+   * ログイン済みの場合のみお気に入り一覧を取得する（未ログイン時は空のまま）。
+   * auth.isAuthenticated が変化するたび（ログイン/ログアウト時）に再評価される。
    */
   useEffect(() => {
-    fetchFavorites();
-  }, [fetchFavorites]);
+    if (auth.isAuthenticated) {
+      fetchFavorites();
+    } else {
+      setFavorites([]);
+      setLoading(false);
+    }
+  }, [auth.isAuthenticated, fetchFavorites]);
 
   return { favorites, loading, toggleFavorite, isFavorite, refetch: fetchFavorites };
 };

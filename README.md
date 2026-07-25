@@ -68,6 +68,9 @@ GitHub Actions のワークフローから AWS や外部サービスに安全に
 | `VITE_GOOGLE_MAPS_KEY` | Google Maps API キー | Google Cloud Console |
 | `CLOUDFLARE_API_TOKEN`【2026-07-24追加】 | Cloudflare Workers へのデプロイ権限を持つ API トークン | Cloudflareダッシュボード → プロフィール → API Tokens →「Edit Cloudflare Workers」テンプレート |
 | `CLOUDFLARE_ACCOUNT_ID`【2026-07-24追加】 | Cloudflare アカウントID | Cloudflareダッシュボード（トークン発行時にも表示される） |
+| `VITE_COGNITO_USER_POOL_ID`【2026-07-26追加】 | Cognito User Pool ID | `sam deploy` 後の Outputs（`UserPoolId`） |
+| `VITE_COGNITO_CLIENT_ID`【2026-07-26追加】 | Cognito User Pool Client ID | `sam deploy` 後の Outputs（`UserPoolClientId`） |
+| `VITE_COGNITO_DOMAIN`【2026-07-26追加】 | Cognito Hosted UI のドメイン | `sam deploy` 後の Outputs（`CognitoHostedUiDomain`）。詳細は下記「9. 認証（Cognito + Google）のセットアップ」参照 |
 
 > **補足:** スポット写真・投稿写真のアップロード先S3バケット（`fishing-ai-app-uploads-<アカウントID>`）は
 > ここでは扱わない。こちらは `template.yaml` の `UploadsBucket` としてSAM/CloudFormationで自動作成されるため、
@@ -274,6 +277,10 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 | 画像アップロードで「画像サイズが大きすぎます」と出る | ファイルが8MB（`MAX_UPLOAD_BYTES`）を超えている | 写真を圧縮するか小さいサイズで撮り直す。上限値自体を変える場合は `handlers.py` の `MAX_UPLOAD_BYTES` と `api/client.ts` の `MAX_UPLOAD_BYTES` を両方変更すること |
 | `pytest` が実AWSにアクセスしようとする（`UnrecognizedClientException`等） | `moto`のモックが有効化される前に対象モジュール（handlers.py等）がimportされ、モジュール内のboto3クライアントがモック非対応のまま生成された | `test_handlers_moto.py` の `dynamodb_tables` フィクスチャのように、`mock_aws()` を開始した後に `importlib.reload()` でモジュールを再読み込みしてからテストすること |
 | Playwright の `toHaveScreenshot` が初回から失敗する | VRTのベースライン画像が未生成（想定内の初回動作） | 上記「8. テスト」のVRT節を参照。CI上でベースラインを生成してコミットする |
+| ログインボタンを押してもエラーになる／リダイレクトされない | `VITE_COGNITO_USER_POOL_ID`/`VITE_COGNITO_CLIENT_ID`/`VITE_COGNITO_DOMAIN` が未設定、またはビルド後にSecrets設定した場合の再ビルド忘れ | 上記「9.3 デプロイ」参照。3つとも設定してから再ビルド（再push）する |
+| Googleログイン後に `redirect_mismatch` エラーになる | Google Cloud ConsoleのOAuthクライアントの承認済みリダイレクトURIが実際のCognitoドメインと不一致 | 上記「9.1」の手順でURIを再確認（`/oauth2/idpresponse` を忘れていないか、末尾スラッシュや大文字小文字の違いがないか） |
+| お気に入り・投稿・AI相談を使おうとすると常にログイン画面に飛ばされる | 想定どおりの動作（これらはログイン必須の操作） | ナビ右上の「ログイン」からGoogleアカウントでログインする |
+| AI相談が「本日の利用回数の上限に達しました」を返す | Geminiコスト管理のための1日あたりレート制限（`DAILY_CHAT_LIMIT`）に達した | 想定どおりの動作。翌日には自動でリセットされる（`UsageTable`のTTLで自動削除）。上限値を変える場合は `handlers.py` の `DAILY_CHAT_LIMIT` を編集して再デプロイ |
 
 ---
 
@@ -290,3 +297,94 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 >
 > Cloudflare側の自動デプロイには GitHub Secrets `CLOUDFLARE_API_TOKEN`（Cloudflareダッシュボード → プロフィール → API Tokens →
 > 「Edit Cloudflare Workers」テンプレートで発行）と `CLOUDFLARE_ACCOUNT_ID` の登録が必要。
+
+---
+
+## 9. 認証（Cognito + Google）のセットアップ（2026-07-26追加）
+
+友人にアプリを共有したことで、`userId` 固定（全員のお気に入り・AI相談履歴が混ざる、
+投稿削除に所有者チェックが無い）が実害になったため、Cognito + Google認証を追加した。
+**閲覧**（おすすめ・地図・スポット一覧・投稿一覧）はログイン不要のまま。**操作**
+（お気に入り・投稿作成/削除・AI相談・AI分析実行・新スポット探索）はログイン必須。
+
+`template.yaml` に `UserPool` / `UserPoolDomain` を追加した時点で、Hosted UIのドメインは
+`https://fishing-ai-app-<AWSアカウントID>.auth.ap-northeast-1.amazoncognito.com`
+という決まった形式になる（`UserPoolDomain` の `Domain` プロパティにアカウントIDを含めているため）。
+そのため、以下の手順は**デプロイ前でも**進められる。
+
+### 9.1 Google Cloud Console で OAuth クライアントを作成
+
+1. [Google Cloud Console → APIs & Services → Credentials](https://console.cloud.google.com/apis/credentials) を開く
+   （Maps/Places APIキーと同じプロジェクトでよい）
+2. 「認証情報を作成」→「OAuth クライアント ID」
+   - アプリケーションの種類: **ウェブ アプリケーション**
+   - 承認済みのリダイレクト URI に以下を追加:
+     ```
+     https://fishing-ai-app-<AWSアカウントID>.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse
+     ```
+     （`<AWSアカウントID>` は `aws sts get-caller-identity --query Account --output text` で確認できる）
+3. 発行された **クライアントID** と **クライアントシークレット** を控える
+
+### 9.2 SSM にクライアントID/シークレットを登録
+
+`template.yaml` の `UserPoolGoogleIdP` が `{{resolve:ssm:...}}` / `{{resolve:ssm-secure:...}}`
+で参照するため、デプロイ前に登録しておく必要がある（未登録のままデプロイすると
+`UserPoolGoogleIdP` の作成に失敗する）。
+
+```bash
+aws ssm put-parameter \
+  --name /fishing-ai/google-oauth-client-id \
+  --value "xxxxxxxx.apps.googleusercontent.com" \
+  --type String
+
+aws ssm put-parameter \
+  --name /fishing-ai/google-oauth-client-secret \
+  --value "GOCSPX-xxxxxxxx" \
+  --type SecureString
+```
+
+### 9.3 デプロイ
+
+通常どおり `main` へ push すれば `sam deploy` が Cognito一式・API Gatewayの認証設定・
+`UsageTable`・`CostBudget` をまとめて作成する。デプロイ完了後、CloudFormationスタックの
+Outputsから `UserPoolId` / `UserPoolClientId` / `CognitoHostedUiDomain` を確認し、
+GitHub Secretsの `VITE_COGNITO_USER_POOL_ID` / `VITE_COGNITO_CLIENT_ID` / `VITE_COGNITO_DOMAIN`
+に設定してから、もう一度 push（またはフロントエンドジョブの re-run）してフロントエンドを
+再ビルドすること（ビルド時に埋め込まれる値のため、Secrets設定後の再ビルドが必要）。
+
+```bash
+aws cloudformation describe-stacks \
+  --stack-name fishing-ai-app \
+  --query "Stacks[0].Outputs"
+```
+
+ローカル開発（`npm run dev`）の場合は `frontend/.env` に同じ3つの値を設定する
+（`.env.example` 参照）。
+
+### 9.4 Geminiコスト管理（1日あたりのAI相談回数上限）
+
+認証で実ユーザーIDが取れるようになったことを利用し、AI相談（`POST /chat`）に
+1ユーザー1日あたり30件（`handlers.py` の `DAILY_CHAT_LIMIT`）の上限を設けている。
+超過時はGeminiを呼ばずに429エラーを返す（フロントには「本日の利用回数の上限に達しました」
+と表示される）。カウンタは `UsageTable`（DynamoDB）にTTL付きで記録され、翌々日には自動で消える。
+
+---
+
+## 10. 利用料アラート（2026-07-26追加）
+
+### AWS（自動化済み）
+`template.yaml` の `CostBudget` が月額$10のAWS Budgetsアラートを作成する
+（80%/100%到達時に rfunao0955@gmail.com へメール通知）。追加の手動設定は不要。
+金額を変更したい場合は `CostBudget.Properties.Budget.BudgetLimit.Amount` を編集して再デプロイする。
+
+### Google Cloud（Gemini/Places、手動設定が必要）
+Gemini・Places・MapsのAPI課金はAWSの外（Google Cloud）で発生するため、AWS Budgetsでは検知できない。
+以下の手順で別途設定すること（自動化不可・GCPコンソールでの手動操作のみ）。
+
+1. [Google Cloud Console → お支払い → 予算とアラート](https://console.cloud.google.com/billing/budgets) を開く
+2. 「予算を作成」→ 対象プロジェクト（Gemini/Places/Maps APIキーを発行したプロジェクト）を選択
+3. 予算額を設定（例: 月$10〜20程度。Gemini API側にも別途無料枠がある）
+4. しきい値（50%/90%/100%など）でメール通知を設定
+
+> AI相談のレート制限（上記9.4）で最も課金リスクの高いGemini呼び出しは抑制済みだが、
+> それでも想定外の利用があった場合に気づけるよう、このアラートは設定しておくことを推奨する。

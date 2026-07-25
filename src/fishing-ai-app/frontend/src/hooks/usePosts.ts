@@ -16,7 +16,8 @@ import { getPosts, createPost, deletePost as deletePostApi } from "../api/client
  * @returns {object} 投稿管理に必要な状態と操作関数
  * @returns {Post[]}    posts       - 投稿一覧（新しい順）
  * @returns {boolean}   loading     - データ取得中フラグ
- * @returns {string | null} error   - エラーメッセージ
+ * @returns {string | null} error   - 一覧取得のエラーメッセージ
+ * @returns {string | null} deleteError - 削除失敗時のエラーメッセージ
  * @returns {Function}  submitPost  - 新規投稿を作成する関数
  * @returns {Function}  removePost  - 投稿を削除する関数
  * @returns {Function}  refetch     - 投稿一覧を再取得する関数
@@ -25,6 +26,7 @@ export const usePosts = () => {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   /**
    * 投稿一覧を取得してステートに反映する。
@@ -58,18 +60,25 @@ export const usePosts = () => {
 
   /**
    * 投稿を削除し、成功したら一覧からも取り除く。
+   * 他人の投稿を削除しようとした場合など、backend側の所有者チェックで
+   * 失敗する可能性があるため、エラーはdeleteErrorに反映してUIに表示する。
    *
    * @param {string} postId - 削除対象の投稿ID
    * @returns {Promise<void>}
    */
   const removePost = useCallback(async (postId: string) => {
-    await deletePostApi(postId);
-    setPosts((prev) => prev.filter((p) => p.postId !== postId));
+    try {
+      setDeleteError(null);
+      await deletePostApi(postId);
+      setPosts((prev) => prev.filter((p) => p.postId !== postId));
+    } catch {
+      setDeleteError("投稿の削除に失敗しました");
+    }
   }, []);
 
   useEffect(() => {
     fetchPosts();
   }, [fetchPosts]);
 
-  return { posts, loading, error, submitPost, removePost, refetch: fetchPosts };
+  return { posts, loading, error, deleteError, submitPost, removePost, refetch: fetchPosts };
 };

@@ -7,7 +7,9 @@
  */
 
 import { NavLink, Link } from "react-router-dom";
-import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle, HelpCircle } from "lucide-react";
+import { useAuth } from "react-oidc-context";
+import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle, HelpCircle, LogIn, LogOut } from "lucide-react";
+import { cognitoSignOut } from "../auth/authConfig";
 
 /**
  * グローバルナビゲーションバーコンポーネント。
@@ -17,10 +19,24 @@ import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle, HelpCircle } from 
  * - モバイルではアプリ名・各リンクのラベル文字を非表示にしてアイコンのみ表示する
  *   （2026-07-25: リンク数が増えて折り返し表示になり見づらかったため）
  * - ロゴ（アイコン+アプリ名）クリックでトップページ（おすすめ）に戻れる
+ * - 右端にログイン状態を表示する（2026-07-26追加）。閲覧は未ログインでも可能だが、
+ *   お気に入り・投稿・AI相談・AI分析実行にはログインが必要なため、常時ログイン導線を出す
  *
  * @returns {JSX.Element} ナビゲーションバー
  */
-export const NavBar = () => (
+export const NavBar = () => {
+  const auth = useAuth();
+
+  /**
+   * ログアウト処理。react-oidc-context側のローカルセッションを消してから、
+   * Cognito Hosted UI自体のセッションも切るため /logout エンドポイントへ遷移する。
+   */
+  const handleLogout = async () => {
+    await auth.removeUser();
+    cognitoSignOut();
+  };
+
+  return (
   <nav className="navbar">
     {/* ブランドロゴ: アプリ名とアイコン。クリックでトップページに戻る */}
     <Link to="/" className="nav-brand">
@@ -72,5 +88,23 @@ export const NavBar = () => (
         <span>使い方</span>
       </NavLink>
     </div>
+
+    {/* ログイン状態表示: ログイン中はメールアドレス+ログアウトボタン、未ログイン時はログインボタン */}
+    <div className="nav-auth">
+      {auth.isAuthenticated ? (
+        <>
+          <span className="nav-auth-email">{auth.user?.profile.email}</span>
+          <button className="icon-btn" onClick={handleLogout} title="ログアウト" aria-label="ログアウト">
+            <LogOut size={18} />
+          </button>
+        </>
+      ) : (
+        <button className="icon-btn" onClick={() => auth.signinRedirect()} title="ログイン" aria-label="ログイン">
+          <LogIn size={18} />
+          <span className="nav-auth-label">ログイン</span>
+        </button>
+      )}
+    </div>
   </nav>
-);
+  );
+};
