@@ -77,6 +77,14 @@ Resources:
   # Googleを外部IdPとして連携。client_id/secretはSSMに事前登録したものをデプロイ時に動的解決する
   # （{{resolve:ssm...}}はCloudFormationの機能で、SAMのSSMParameterReadPolicyとは別物。
   # ここは実パラメータ名そのものを書くため先頭スラッシュが必要）
+  #
+  # 【2026-07-26 訂正】client_secretは当初 {{resolve:ssm-secure:...}}（SecureString）を使う設計だったが、
+  # 実デプロイで "SSM Secure reference is not supported in:
+  # [AWS::Cognito::UserPoolIdentityProvider/Properties/ProviderDetails/client_secret]" エラーになった。
+  # CloudFormationの動的参照でssm-secure（SecureString）が使えるリソース/プロパティは限られており、
+  # Cognito UserPoolIdentityProviderのclient_secretは対象外。そのためclient_secretのみ
+  # 通常のString（非暗号化）パラメータとして登録し、{{resolve:ssm:...}}で解決する
+  # （読み取りはこのCloudFormationスタック実行時のみ・IAMで権限を絞っているため実運用上のリスクは限定的）。
   UserPoolGoogleIdP:
     Type: AWS::Cognito::UserPoolIdentityProvider
     Properties:
@@ -85,7 +93,7 @@ Resources:
       ProviderType: Google
       ProviderDetails:
         client_id: "{{resolve:ssm:/fishing-ai/google-oauth-client-id}}"
-        client_secret: "{{resolve:ssm-secure:/fishing-ai/google-oauth-client-secret}}"
+        client_secret: "{{resolve:ssm:/fishing-ai/google-oauth-client-secret}}"
         authorize_scopes: "email openid profile"
       AttributeMapping:
         email: email

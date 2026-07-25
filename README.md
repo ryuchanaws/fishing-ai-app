@@ -327,9 +327,8 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 
 ### 9.2 SSM にクライアントID/シークレットを登録
 
-`template.yaml` の `UserPoolGoogleIdP` が `{{resolve:ssm:...}}` / `{{resolve:ssm-secure:...}}`
-で参照するため、デプロイ前に登録しておく必要がある（未登録のままデプロイすると
-`UserPoolGoogleIdP` の作成に失敗する）。
+`template.yaml` の `UserPoolGoogleIdP` が `{{resolve:ssm:...}}` で参照するため、デプロイ前に
+登録しておく必要がある（未登録のままデプロイすると `UserPoolGoogleIdP` の作成に失敗する）。
 
 ```bash
 aws ssm put-parameter \
@@ -340,8 +339,16 @@ aws ssm put-parameter \
 aws ssm put-parameter \
   --name /fishing-ai/google-oauth-client-secret \
   --value "GOCSPX-xxxxxxxx" \
-  --type SecureString
+  --type String
 ```
+
+> **注意（2026-07-26訂正）:** client_secretは当初SecureStringで登録する設計だったが、実デプロイで
+> `SSM Secure reference is not supported in: [AWS::Cognito::UserPoolIdentityProvider/Properties/ProviderDetails/client_secret]`
+> というエラーになった。CloudFormationの動的参照（`{{resolve:ssm-secure:...}}`）でSecureStringが
+> 使えるリソース/プロパティは限られており、CognitoのIdentityProvider client_secretは対象外。
+> そのため他のシークレット（Gemini/Places APIキー）とは異なり、client_secretのみ通常の
+> String（非暗号化）パラメータとして登録する。読み取りはCloudFormationのスタック実行時のみで
+> IAM権限も絞っているため、実運用上のリスクは限定的と判断している。
 
 ### 9.3 デプロイ
 
