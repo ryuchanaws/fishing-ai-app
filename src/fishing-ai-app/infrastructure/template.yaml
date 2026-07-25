@@ -263,6 +263,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /recommendations
             Method: GET
 
@@ -279,6 +280,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /spots
             Method: GET
 
@@ -295,6 +297,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /posts
             Method: GET
 
@@ -312,6 +315,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /favorites
             Method: GET
             Auth:
@@ -331,6 +335,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /favorites
             Method: POST
             Auth:
@@ -349,6 +354,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /favorites/{spotId}
             Method: DELETE
             Auth:
@@ -367,6 +373,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /posts
             Method: POST
             Auth:
@@ -385,6 +392,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /posts/{postId}
             Method: DELETE
             Auth:
@@ -403,6 +411,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /spots/{spotId}/image
             Method: PUT
             Auth:
@@ -421,6 +430,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /uploads/presign
             Method: POST
             Auth:
@@ -447,6 +457,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /chat
             Method: POST
             Auth:
@@ -465,6 +476,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /chats
             Method: GET
             Auth:
@@ -483,6 +495,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /chats/{chatId}
             Method: GET
             Auth:
@@ -501,6 +514,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /chats/{chatId}
             Method: DELETE
             Auth:
@@ -567,6 +581,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /admin/run-ai-batch
             Method: POST
             Auth:
@@ -617,6 +632,7 @@ Resources:
         Api:
           Type: Api
           Properties:
+            RestApiId: !Ref Api
             Path: /admin/run-spot-discovery
             Method: POST
             Auth:
