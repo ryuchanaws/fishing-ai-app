@@ -8,7 +8,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Plus, History, Loader2 } from "lucide-react";
+import { useAuth } from "react-oidc-context";
+import { Plus, History, Loader2, LogIn, MessageCircle } from "lucide-react";
 import { useChat } from "../hooks/useChat";
 import { ChatInput } from "../components/ChatInput";
 import { ChatHistoryPanel } from "../components/ChatHistoryPanel";
@@ -23,6 +24,7 @@ import { ChatHistoryPanel } from "../components/ChatHistoryPanel";
  * @returns {JSX.Element} AIチャット画面
  */
 export const ChatPage = () => {
+  const auth = useAuth();
   const { messages, sending, error, history, historyLoading, send, startNewChat, loadHistory, openChat, removeChat } =
     useChat();
   const [showHistory, setShowHistory] = useState(false);
@@ -50,6 +52,30 @@ export const ChatPage = () => {
     await openChat(chatId);
     setShowHistory(false);
   };
+
+  // /chat・/chats系エンドポイントは全てCognito認証必須のため、未ログイン時は
+  // チャットUIを一切マウントせずログイン導線のみ表示する
+  if (!auth.isAuthenticated) {
+    return (
+      <div className="page chat-page">
+        <div className="page-header">
+          <div>
+            <h1 className="page-title">AI相談</h1>
+            <p className="page-sub">写真も添えて、魚種やエサについて質問できます</p>
+          </div>
+        </div>
+        <div className="empty-state">
+          <MessageCircle size={48} style={{ color: "#d1d5db", marginBottom: 12 }} />
+          <p>AI相談を利用するにはログインが必要です</p>
+          <p className="empty-hint">Googleアカウントでログインすると使えるようになります</p>
+          <button className="btn-nav" onClick={() => auth.signinRedirect()} style={{ marginTop: 12 }}>
+            <LogIn size={16} />
+            ログイン
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page chat-page">

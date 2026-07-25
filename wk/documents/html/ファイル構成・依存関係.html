@@ -23,8 +23,8 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <div class="box">
 本書は「どの画面が何をするか」「どのファイルがどのファイルを読んでいるか」を一覧できるようにするための
-リファレンス。2026-07-26時点の実装内容に基づく。仕様の背景・意思決定理由は
-基本設計書.html／詳細設計.html／DEテーブル設計.html を参照。
+リファレンス。2026-07-26時点の実装内容に基づく（認証・Geminiコスト管理・利用料アラート追加後）。
+仕様の背景・意思決定理由は基本設計書.html／詳細設計.html／DEテーブル設計.html を参照。
 </div>
 
 <hr>
@@ -43,7 +43,11 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <div class="box">
 ルーティング定義は <code>App.tsx</code>。全ページ共通のヘッダーは <code>components/NavBar.tsx</code>
-（ロゴクリックで <code>/</code> に戻る、モバイルではラベル非表示）。
+（ロゴクリックで <code>/</code> に戻る、モバイルではラベル非表示、右端にログイン状態を表示）。<br>
+<b>ログイン不要（閲覧）</b>: おすすめ・地図・スポット・釣果投稿の一覧表示。<br>
+<b>ログイン必須（操作）</b>: お気に入り登録/削除、投稿の作成/削除、AI相談、AI分析実行、現在地から新スポット探索。
+未ログインでこれらを操作しようとするとCognito Hosted UI（Googleログイン画面）へ自動遷移するか
+（お気に入り・投稿作成・AI分析実行・新スポット探索）、ページ自体がログイン案内を表示する（AI相談）。
 </div>
 
 ---
@@ -79,10 +83,10 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <table>
 <tr><th>フック</th><th>呼び出す api/client.ts の関数</th></tr>
-<tr><td>useRecommendations.ts</td><td>getRecommendations, runAiBatch</td></tr>
-<tr><td>useFavorites.ts</td><td>getFavorites, addFavorite, removeFavorite</td></tr>
-<tr><td>usePosts.ts</td><td>getPosts, createPost, deletePost</td></tr>
-<tr><td>useChat.ts</td><td>sendChatMessage, getChatHistory, getChat, deleteChat, getPresignedUploadUrl, uploadImageToS3</td></tr>
+<tr><td>useRecommendations.ts</td><td>getRecommendations, runAiBatch（未ログイン時はrunAiBatch実行前にsigninRedirect）</td></tr>
+<tr><td>useFavorites.ts</td><td>getFavorites, addFavorite, removeFavorite（2026-07-26: userId引数を廃止。未ログイン時はfetchせず空配列、トグル時はsigninRedirect）</td></tr>
+<tr><td>usePosts.ts</td><td>getPosts, createPost, deletePost（削除失敗時はdeleteErrorに反映）</td></tr>
+<tr><td>useChat.ts</td><td>sendChatMessage, getChatHistory, getChat, deleteChat, getPresignedUploadUrl, uploadImageToS3（429応答はレート制限メッセージとして表示）</td></tr>
 <tr><td>useGeolocation.ts</td><td>（なし。navigator.geolocation をラップするのみ）</td></tr>
 <tr><td>useLongPress.ts</td><td>（なし。hover/長押し検知のみのUIフック）</td></tr>
 </table>
@@ -91,6 +95,20 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <code>api/client.ts</code> が全エンドポイント呼び出しを一手に引き受ける唯一の窓口（共有axiosインスタンス）。
 <code>api/wikipedia.ts</code> だけは例外で、魚種画像取得のため直接 <code>fetch()</code> でWikipedia REST APIを叩く
 （バックエンドを経由しない）。
+</div>
+
+<h3>2.5 認証まわりのファイル（2026-07-26追加）</h3>
+
+<table>
+<tr><th>ファイル</th><th>役割</th></tr>
+<tr><td>auth/authConfig.ts</td><td>react-oidc-context の AuthProvider に渡す設定（authority/client_id/redirect_uri）。環境変数 VITE_COGNITO_* から組み立てる。Cognito Hosted UIの独自ログアウトURLを作る cognitoSignOut() もここに定義</td></tr>
+<tr><td>auth/AuthTokenSync.tsx</td><td>画面には何も描画しない同期用コンポーネント。ログイン状態が変わるたびに api/client.ts の setAuthToken() を呼び、以後のAPIリクエストのAuthorizationヘッダーを最新化する</td></tr>
+</table>
+
+<div class="box">
+<code>App.tsx</code> が <code>&lt;AuthProvider&gt;</code> でアプリ全体をラップし、直下に <code>&lt;AuthTokenSync /&gt;</code> をマウントする。
+各フック・コンポーネントは <code>react-oidc-context</code> の <code>useAuth()</code> を直接呼んでログイン状態を参照する
+（Reduxのような中央ストアは無く、Contextで完結）。
 </div>
 
 <h3>2.4 純粋ユーティリティ</h3>
@@ -109,22 +127,31 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <h3>3.1 API系（backend/lambda/api/handlers.py 1ファイルに集約）</h3>
 
 <table>
-<tr><th>関数</th><th>エンドポイント</th><th>読み書きするテーブル/バケット</th></tr>
-<tr><td>getRecommendationsHandler</td><td>GET /recommendations</td><td>Recommendations（読）, Spots（読、結合用）</td></tr>
-<tr><td>getSpotsHandler</td><td>GET /spots</td><td>Spots（読）</td></tr>
-<tr><td>putSpotImageHandler</td><td>PUT /spots/{spotId}/image</td><td>Spots（更新）</td></tr>
-<tr><td>getPostsHandler</td><td>GET /posts</td><td>Posts（読）</td></tr>
-<tr><td>postPostsHandler</td><td>POST /posts</td><td>Posts（作成）</td></tr>
-<tr><td>deletePostHandler</td><td>DELETE /posts/{postId}</td><td>Posts（削除）</td></tr>
-<tr><td>getFavoritesHandler</td><td>GET /favorites</td><td>Favorites（読）, Spots（読、結合用）</td></tr>
-<tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>Favorites（作成）</td></tr>
-<tr><td>deleteFavoritesHandler</td><td>DELETE /favorites/{spotId}</td><td>Favorites（削除）</td></tr>
-<tr><td>postPresignUploadHandler</td><td>POST /uploads/presign</td><td>S3 UploadsBucket（署名付きPOSTフォーム発行のみ）</td></tr>
-<tr><td>postChatHandler</td><td>POST /chat</td><td>Chats（読み書き）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
-<tr><td>getChatsHandler</td><td>GET /chats</td><td>Chats（読、軽量版）</td></tr>
-<tr><td>getChatHandler</td><td>GET /chats/{chatId}</td><td>Chats（読、全メッセージ）</td></tr>
-<tr><td>deleteChatHandler</td><td>DELETE /chats/{chatId}</td><td>Chats（削除）</td></tr>
+<tr><th>関数</th><th>エンドポイント</th><th>認証</th><th>読み書きするテーブル/バケット</th></tr>
+<tr><td>getRecommendationsHandler</td><td>GET /recommendations</td><td>不要</td><td>Recommendations（読）, Spots（読、結合用）</td></tr>
+<tr><td>getSpotsHandler</td><td>GET /spots</td><td>不要</td><td>Spots（読）</td></tr>
+<tr><td>putSpotImageHandler</td><td>PUT /spots/{spotId}/image</td><td>必須</td><td>Spots（更新）</td></tr>
+<tr><td>getPostsHandler</td><td>GET /posts</td><td>不要</td><td>Posts（読）</td></tr>
+<tr><td>postPostsHandler</td><td>POST /posts</td><td>必須</td><td>Posts（作成。userIdは_get_user_id(event)で取得しリクエストボディの値は無視）</td></tr>
+<tr><td>deletePostHandler</td><td>DELETE /posts/{postId}</td><td>必須</td><td>Posts（削除。postId単一PKで所有者情報がキーに無いため、削除前にget_itemして自分の投稿か明示チェック。他人の投稿は403）</td></tr>
+<tr><td>getFavoritesHandler</td><td>GET /favorites</td><td>必須</td><td>Favorites（読）, Spots（読、結合用）</td></tr>
+<tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>必須</td><td>Favorites（作成）</td></tr>
+<tr><td>deleteFavoritesHandler</td><td>DELETE /favorites/{spotId}</td><td>必須</td><td>Favorites（削除）</td></tr>
+<tr><td>postPresignUploadHandler</td><td>POST /uploads/presign</td><td>必須</td><td>S3 UploadsBucket（署名付きPOSTフォーム発行のみ）</td></tr>
+<tr><td>postChatHandler</td><td>POST /chat</td><td>必須</td><td>Chats（読み書き）, Usage（1日あたり利用回数のアトミック加算）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
+<tr><td>getChatsHandler</td><td>GET /chats</td><td>必須</td><td>Chats（読、軽量版）</td></tr>
+<tr><td>getChatHandler</td><td>GET /chats/{chatId}</td><td>必須</td><td>Chats（読、全メッセージ）</td></tr>
+<tr><td>deleteChatHandler</td><td>DELETE /chats/{chatId}</td><td>必須</td><td>Chats（削除）</td></tr>
 </table>
+
+<div class="box">
+<b>2026-07-26追加:</b> 「認証必須」のエンドポイントは <code>template.yaml</code> の <code>Api</code> リソースに定義した
+<code>CognitoAuthorizer</code>（Cognito User Pool Authorizer）を通過して初めて呼び出せる。
+通過後のイベントには <code>event.requestContext.authorizer.claims.sub</code>
+にユーザーの一意なID（Cognitoのsub）が入り、<code>_get_user_id(event)</code> ヘルパーがこれを取得する
+（Favorites/Chatsテーブルは元々userIdがpartition keyの一部のため、他人になりすまして
+アクセスすること自体ができない設計。PostsテーブルだけpostId単一PKのため上記の通り明示チェックが必要）。
+</div>
 
 <h3>3.2 バッチ系（backend/lambda/batch/）</h3>
 
@@ -146,9 +173,15 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><th>SAM論理ID</th><th>Handler指定</th><th>トリガー</th></tr>
 <tr><td>GenerateSpotScoreBatch</td><td>generate_score.handler</td><td>EventBridge（毎日AM6:00 JST）／AdminRunAiBatchFunction経由</td></tr>
 <tr><td>DiscoverSpotsBatch</td><td>discover_spots.handler</td><td>AdminRunSpotDiscoveryFunction経由のみ（自動スケジュールなし）</td></tr>
-<tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch）</td><td>POST /admin/run-ai-batch</td></tr>
-<tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch）</td><td>POST /admin/run-spot-discovery</td></tr>
+<tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch）</td><td>POST /admin/run-ai-batch（認証必須）</td></tr>
+<tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch）</td><td>POST /admin/run-spot-discovery（認証必須）</td></tr>
 </table>
+
+<div class="box">
+<b>2026-07-26追加:</b> それまでSAMが暗黙生成していたAPI Gatewayを、<code>template.yaml</code>に
+明示的な <code>Api</code>（<code>AWS::Serverless::Api</code>）リソースとして定義し直した
+（Cognitoオーソライザーを使うために必要）。既存のCORS設定もここに統合済み。
+</div>
 
 ---
 
@@ -161,6 +194,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>fishing-favorites</td><td>FavoritesTable</td><td>userId (PK) + spotId (SK)</td><td>postFavoritesHandler / deleteFavoritesHandler</td></tr>
 <tr><td>fishing-posts</td><td>PostsTable</td><td>postId (PK)</td><td>postPostsHandler / deletePostHandler</td></tr>
 <tr><td>fishing-chats</td><td>ChatsTable</td><td>userId (PK) + chatId (SK)</td><td>postChatHandler / deleteChatHandler</td></tr>
+<tr><td>fishing-usage</td><td>UsageTable【2026-07-26追加】</td><td>userId (PK) + dateKey (SK, 例: "chat#2026-07-26")</td><td>postChatHandler内の_check_and_increment_daily_usage（ADDによるアトミック加算）。TTL（expiresAt）で翌々日ごろ自動削除</td></tr>
 </table>
 
 <div class="box">
@@ -201,7 +235,40 @@ ChatInput.tsx（写真選択 + 送信）
 
 ---
 
-<h2>6. 関連ドキュメント</h2>
+<h2>6. 使用サービスとコストの目安（2026-07-26追加）</h2>
+
+<div class="box">
+友人にアプリを共有し複数人が使うようになったことを踏まえ、現時点で使っている全サービスと
+「何に対して課金されるか」「個人〜友人数名規模の利用ならどの程度か」を一覧化する。
+<b>正確な最新料金は各サービスの公式ページで確認すること</b>（料金体系は変更されうるため、あくまで目安）。
+</div>
+
+<table>
+<tr><th>サービス</th><th>課金対象</th><th>個人〜友人規模での目安</th></tr>
+<tr><td>Lambda</td><td>呼び出し回数・実行時間</td><td>無料枠内（月100万回・40万GB秒まで無料）</td></tr>
+<tr><td>API Gateway (REST)</td><td>APIコール数</td><td>新規アカウントは12ヶ月無料枠、以降は$3.50/百万回。この規模ならごく僅か</td></tr>
+<tr><td>DynamoDB（6テーブル）</td><td>読み書きリクエスト数・ストレージ</td><td>無料枠+低ボリュームでごく僅か</td></tr>
+<tr><td>S3（静的ホスティング＋アップロード）</td><td>ストレージ・リクエスト数</td><td>数百円未満想定</td></tr>
+<tr><td>CloudFront</td><td>データ転送量</td><td>12ヶ月無料枠（1TB/月）、以降も低ボリュームなら僅か</td></tr>
+<tr><td>SSM Parameter Store</td><td>Standard利用なら無料</td><td>無料</td></tr>
+<tr><td>EventBridge（日次バッチ起動）</td><td>ルール数・イベント数</td><td>無料枠内</td></tr>
+<tr><td>Cognito【新規】</td><td>月間アクティブユーザー数</td><td>無料枠（実質1万MAU程度）内、友人数名なら無料</td></tr>
+<tr><td>AWS Budgets【新規】</td><td>予算数</td><td>2つまで無料。今回1つのみ設定</td></tr>
+<tr><td>Google Gemini API</td><td>トークン数（画像添付は増加）</td><td><b>最も課金リスクが高い部分</b>。無料枠はあるが超過分は従量課金。AI相談への1日あたりレート制限（DAILY_CHAT_LIMIT）で抑制済み</td></tr>
+<tr><td>Google Places API</td><td>リクエスト数</td><td>月$200無料クレジット枠内の想定</td></tr>
+<tr><td>Google Maps JavaScript API</td><td>読み込み回数</td><td>同上、$200クレジット枠</td></tr>
+<tr><td>Cloudflare Workers（ミラー）</td><td>リクエスト数</td><td>無料枠（1日10万リクエスト）で十分</td></tr>
+</table>
+
+<div class="box">
+AWS側は <code>CostBudget</code>（AWS Budgets、月$10・80%/100%到達時にメール通知）で自動監視している。
+Google Cloud側（Gemini/Places/Maps）はAWS Budgetsの対象外のため、GCPコンソールで別途予算アラートを
+手動設定する必要がある（README.mdの「10. 利用料アラート」参照）。
+</div>
+
+---
+
+<h2>7. 関連ドキュメント</h2>
 <ul>
 <li>要件・仕様の背景: <a href="要件定義.html">要件定義.html</a>、<a href="企画書.html">企画書.html</a></li>
 <li>AWS構成・実装更新の経緯: <a href="基本設計書.html">基本設計書.html</a></li>

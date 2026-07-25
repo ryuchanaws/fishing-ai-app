@@ -57,6 +57,7 @@ RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recomme
 FAVORITES_TABLE = os.environ.get("FAVORITES_TABLE", "fishing-favorites")
 POSTS_TABLE = os.environ.get("POSTS_TABLE", "fishing-posts")
 CHATS_TABLE = os.environ.get("CHATS_TABLE", "fishing-chats")
+USAGE_TABLE = os.environ.get("USAGE_TABLE", "fishing-usage")
 
 # ─────────────────────────────
 # S3（スポット写真・投稿写真のアップロード先）
@@ -86,8 +87,31 @@ GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
 
 # 直近何往復分の会話をGeminiに渡すか（トークン量とレイテンシを抑えるための上限）
 CHAT_HISTORY_LIMIT = 10
-# ユーザー単体運用のため固定（他エンドポイントと同じ規約）
+# Cognito未対応のエンドポイント・オーソライザーを未通過のリクエスト向けフォールバック
+# （2026-07-26時点では認証必須エンドポイントは全てCognitoAuthorizerを通るため実質使われない）
 DEFAULT_USER_ID = "user-001"
+
+# 1ユーザーが1日に送れるAIチャットメッセージ数の上限。Gemini呼び出しコストを抑えるための
+# 簡易レート制限（2026-07-26追加。友人にアプリを共有したことで複数人が使うようになったため）
+DAILY_CHAT_LIMIT = 30
+
+
+def _get_user_id(event: dict[str, Any]) -> str:
+    """Cognitoオーソライザーが付与したクレームから実ユーザーIDを取得する。
+
+    API Gateway が CognitoAuthorizer を通過させたリクエストには
+    event.requestContext.authorizer.claims.sub にユーザーの一意なID（sub）が入る。
+    オーソライザーを経由していないエンドポイント（保護対象外）や、テスト等で
+    claims が無い場合は DEFAULT_USER_ID にフォールバックする。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+
+    Returns:
+        str: Cognitoのsub（ユーザー識別子）。取得できない場合は DEFAULT_USER_ID
+    """
+    claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims") or {}
+    return claims.get("sub", DEFAULT_USER_ID)
 
 
 # ─────────────────────────────
@@ -278,22 +302,20 @@ def getPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def getFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """GET /favorites — 指定ユーザーのお気に入り一覧を返す。
+    """GET /favorites — ログイン中ユーザーのお気に入り一覧を返す。
 
-    クエリパラメータ userId でお気に入りを絞り込み、
     各お気に入りレコードに対応するスポット情報（spot）を付与して返す。
-    userId 未指定時は固定ユーザー "user-001" を使用する（個人利用想定）。
+    userIdはCognito認証のクレームから取得する（2026-07-26: クエリパラメータでの
+    指定を廃止。他人のuserIdを指定して覗き見できてしまう問題があったため）。
 
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト
-            queryStringParameters.userId (str, optional): 対象ユーザーID
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
         dict[str, Any]: statusCode=200、body に {"items": [...]}
     """
-    qs = event.get("queryStringParameters") or {}
-    user_id = qs.get("userId", "user-001")
+    user_id = _get_user_id(event)
 
     table_f = _get_table(FAVORITES_TABLE)
     table_s = _get_table(SPOTS_TABLE)
@@ -320,10 +342,12 @@ def postFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     リクエストボディの spotId を FavoritesTable に登録する。
     同一の userId + spotId が既に存在する場合は上書きされる（冪等性あり）。
+    userIdはCognito認証のクレームから取得する（リクエストボディでの指定は無視する。
+    他人になりすまして登録できてしまう問題を防ぐため）。
 
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト
-            body (str): JSON文字列。userId(省略可) / spotId(必須) / memo(省略可) を含む
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
+            body (str): JSON文字列。spotId(必須) / memo(省略可) を含む
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
@@ -333,7 +357,7 @@ def postFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """
     body = json.loads(event.get("body") or "{}")
 
-    user_id = body.get("userId", "user-001")
+    user_id = _get_user_id(event)
     spot_id = body.get("spotId")
     memo = body.get("memo", "")
 
@@ -358,14 +382,13 @@ def postFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 def deleteFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """DELETE /favorites/{spotId} — お気に入りスポットを削除する。
 
-    パスパラメータ spotId とクエリパラメータ userId の組み合わせで
-    FavoritesTable から該当レコードを削除する。
-    userId 未指定時は固定ユーザー "user-001" を使用する（個人利用想定）。
+    パスパラメータ spotId とCognito認証のクレームから得たuserIdの組み合わせで
+    FavoritesTable から該当レコードを削除する（userIdはFavoritesのpartition keyの
+    一部なので、他人のuserIdでは元々そのレコードにアクセスできない）。
 
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
             pathParameters.spotId (str): 削除対象のスポットID
-            queryStringParameters.userId (str, optional): 対象ユーザーID
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
@@ -374,8 +397,7 @@ def deleteFavoritesHandler(event: dict[str, Any], context: Any) -> dict[str, Any
             spotId 未指定時 400: {"error": "spotId is required"}
     """
     spot_id = (event.get("pathParameters") or {}).get("spotId")
-    qs = event.get("queryStringParameters") or {}
-    user_id = qs.get("userId", "user-001")
+    user_id = _get_user_id(event)
 
     if not spot_id:
         return _resp(400, {"error": "spotId is required"})
@@ -401,11 +423,13 @@ def postPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     リクエストボディの spotId / content を PostsTable に登録する。
     postId はサーバー側で uuid4 を採番し、createdAt は現在時刻を設定する。
+    userIdはCognito認証のクレームから取得する（リクエストボディでの指定は無視する。
+    他人になりすまして投稿できてしまう問題を防ぐため）。
 
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
             body (str): JSON文字列。spotId(必須) / content(必須) /
-                userId(省略可) / imageUrl(省略可) / fishCaught(省略可) を含む
+                imageUrl(省略可) / fishCaught(省略可) を含む
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
@@ -424,7 +448,7 @@ def postPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     post = {
         "postId": str(uuid.uuid4()),
         "spotId": spot_id,
-        "userId": body.get("userId", "user-001"),
+        "userId": _get_user_id(event),
         "content": content,
         "imageUrl": body.get("imageUrl", ""),
         "fishCaught": body.get("fishCaught", []),
@@ -444,8 +468,12 @@ def postPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 def deletePostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """DELETE /posts/{postId} — 釣果投稿を削除する。
 
+    PostsTableはpostId単一PKで所有者情報がキーに含まれないため、Favorites/Chatsと
+    異なり明示的な所有者チェックが必要（2026-07-26追加）。削除前に投稿を取得し、
+    投稿のuserIdとリクエスト元のuserIdが一致しない場合は403を返す。
+
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
             pathParameters.postId (str): 削除対象の投稿ID
         context (Any): Lambda コンテキストオブジェクト
 
@@ -453,6 +481,8 @@ def deletePostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         dict[str, Any]:
             成功時 200: {"message": "deleted"}
             postId 未指定時 400: {"error": "postId is required"}
+            投稿が存在しない場合 404: {"error": "post not found"}
+            自分の投稿でない場合 403: {"error": "forbidden"}
     """
     post_id = (event.get("pathParameters") or {}).get("postId")
 
@@ -460,6 +490,14 @@ def deletePostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return _resp(400, {"error": "postId is required"})
 
     table = _get_table(POSTS_TABLE)
+    item = table.get_item(Key={"postId": post_id}).get("Item")
+
+    if not item:
+        return _resp(404, {"error": "post not found"})
+
+    if item.get("userId") != _get_user_id(event):
+        return _resp(403, {"error": "forbidden"})
+
     table.delete_item(Key={"postId": post_id})
 
     return _resp(200, {"message": "deleted"})
@@ -558,6 +596,41 @@ def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, A
         "uploadFields": presigned["fields"],
         "publicUrl": public_url,
     })
+
+
+# ─────────────────────────────
+# レート制限（AIチャットの1日あたり利用回数）
+# ─────────────────────────────
+def _check_and_increment_daily_usage(user_id: str, action: str, limit: int) -> bool:
+    """指定ユーザー・アクションの当日の利用回数をアトミックに加算し、上限内かどうかを返す。
+
+    UsageTable（userId + dateKey）に対して ADD で単純加算する。DynamoDBのADDは
+    アトミックなため、同時リクエストが来ても加算漏れは起きない。項目にはTTL
+    （翌々日0時ごろ）を設定しており、DynamoDB側で自動的に古いカウンタが削除される。
+
+    Args:
+        user_id (str): 対象ユーザーID（Cognitoのsub）
+        action  (str): アクション種別（例: "chat"）。dateKeyのプレフィックスに使う
+        limit   (int): 1日あたりの上限回数
+
+    Returns:
+        bool: 上限内（呼び出しを継続してよい）なら True、上限超過なら False
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_key = f"{action}#{today}"
+    # 翌々日0時（UTC）を目安にTTLで自動削除させる
+    expires_at = int(datetime.now(timezone.utc).timestamp()) + 2 * 24 * 60 * 60
+
+    table = _get_table(USAGE_TABLE)
+    result = table.update_item(
+        Key={"userId": user_id, "dateKey": date_key},
+        UpdateExpression="ADD #c :inc SET expiresAt = if_not_exists(expiresAt, :exp)",
+        ExpressionAttributeNames={"#c": "count"},
+        ExpressionAttributeValues={":inc": 1, ":exp": expires_at},
+        ReturnValues="UPDATED_NEW",
+    )
+    current_count = int(result["Attributes"]["count"])
+    return current_count <= limit
 
 
 # ─────────────────────────────
@@ -663,6 +736,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         dict[str, Any]:
             成功時 200: {"chatId": str, "reply": str, "updatedAt": str}
             message 未指定時 400: {"error": "..."}
+            本日の利用上限に達している場合 429: {"error": "rate_limited", "message": "..."}
     """
     body = json.loads(event.get("body") or "{}")
     message = body.get("message")
@@ -672,11 +746,21 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     if not message:
         return _resp(400, {"error": "message is required"})
 
+    user_id = _get_user_id(event)
+
+    # Gemini呼び出しコストを抑えるための1日あたりレート制限（2026-07-26追加）。
+    # 上限超過時はGeminiを呼ばずに即座に返す
+    if not _check_and_increment_daily_usage(user_id, "chat", DAILY_CHAT_LIMIT):
+        return _resp(429, {
+            "error": "rate_limited",
+            "message": f"本日のAI相談の利用回数（{DAILY_CHAT_LIMIT}件）に達しました。明日またお試しください。",
+        })
+
     table = _get_table(CHATS_TABLE)
     now = datetime.now(timezone.utc).isoformat()
 
     if chat_id:
-        existing = table.get_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id}).get("Item")
+        existing = table.get_item(Key={"userId": user_id, "chatId": chat_id}).get("Item")
         messages: list[dict[str, Any]] = existing["messages"] if existing else []
         title = existing["title"] if existing else message[:30]
         created_at = existing["createdAt"] if existing else now
@@ -694,7 +778,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     messages.append({"role": "assistant", "content": reply, "createdAt": reply_at})
 
     table.put_item(Item={
-        "userId": DEFAULT_USER_ID,
+        "userId": user_id,
         "chatId": chat_id,
         "title": title,
         "messages": messages,
@@ -715,14 +799,14 @@ def getChatsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     履歴パネルの一覧表示用に、messages配列を含まない軽量なレスポンスを返す。
 
     Args:
-        event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
         dict[str, Any]: statusCode=200、body に {"items": [{chatId, title, updatedAt}, ...]}（updatedAt降順）
     """
     table = _get_table(CHATS_TABLE)
-    resp = table.query(KeyConditionExpression=Key("userId").eq(DEFAULT_USER_ID))
+    resp = table.query(KeyConditionExpression=Key("userId").eq(_get_user_id(event)))
     items = resp.get("Items", [])
 
     summaries = [
@@ -756,7 +840,7 @@ def getChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     chat_id = (event.get("pathParameters") or {}).get("chatId")
 
     table = _get_table(CHATS_TABLE)
-    item = table.get_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id}).get("Item")
+    item = table.get_item(Key={"userId": _get_user_id(event), "chatId": chat_id}).get("Item")
 
     if not item:
         return _resp(404, {"error": "chat not found"})
@@ -787,6 +871,6 @@ def deleteChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return _resp(400, {"error": "chatId is required"})
 
     table = _get_table(CHATS_TABLE)
-    table.delete_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id})
+    table.delete_item(Key={"userId": _get_user_id(event), "chatId": chat_id})
 
     return _resp(200, {"message": "deleted"})

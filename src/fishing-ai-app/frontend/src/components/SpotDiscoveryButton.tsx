@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { useAuth } from "react-oidc-context";
 import { LocateFixed, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { runSpotDiscovery } from "../api/client";
 
@@ -26,12 +27,19 @@ type Status = "idle" | "locating" | "running" | "done" | "error" | "denied";
  * @returns {JSX.Element} 現在地から探すボタンと結果メッセージ
  */
 export const SpotDiscoveryButton = () => {
+  const auth = useAuth();
   const [status, setStatus] = useState<Status>("idle");
 
   /**
    * 現在地を取得し、取得できたらバッチ起動をリクエストする。
+   * /admin/run-spot-discovery はCognito認証必須のため、未ログイン時はログイン画面へ誘導する。
    */
   const handleRun = () => {
+    if (!auth.isAuthenticated) {
+      auth.signinRedirect();
+      return;
+    }
+
     setStatus("locating");
     navigator.geolocation.getCurrentPosition(
       async (pos) => {

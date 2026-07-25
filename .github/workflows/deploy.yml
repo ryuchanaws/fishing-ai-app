@@ -114,12 +114,19 @@ jobs:
       # 環境変数はGitHub Secretsから注入
       # VITE_API_BASE_URL: API GatewayのエンドポイントURL
       # VITE_GOOGLE_MAPS_KEY: Google Maps APIキー
+      # VITE_COGNITO_*: 認証（Cognito+Google）関連。2026-07-26追加。
+      #   sam deploy の Outputs（UserPoolId/UserPoolClientId/CognitoHostedUiDomain）の値を
+      #   Secretsに設定すること（README参照）
       - name: Build
         run: npm run build
         working-directory: src/fishing-ai-app/frontend
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_GOOGLE_MAPS_KEY: ${{ secrets.VITE_GOOGLE_MAPS_KEY }}
+          VITE_AWS_REGION: ${{ env.AWS_REGION }}
+          VITE_COGNITO_USER_POOL_ID: ${{ secrets.VITE_COGNITO_USER_POOL_ID }}
+          VITE_COGNITO_CLIENT_ID: ${{ secrets.VITE_COGNITO_CLIENT_ID }}
+          VITE_COGNITO_DOMAIN: ${{ secrets.VITE_COGNITO_DOMAIN }}
 
       # AWSの認証情報を再設定（フロントエンドジョブ用）
       - uses: aws-actions/configure-aws-credentials@v4

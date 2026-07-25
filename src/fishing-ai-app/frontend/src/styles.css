@@ -152,6 +152,34 @@ body  {
   color: var(--accent);
 }
 
+/* ログイン状態表示エリア（2026-07-26追加） */
+.nav-auth  {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.nav-auth-email  {
+  font-size: 12px;
+  color: var(--text2);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ログインボタン: アイコン+ラベルのため、正方形固定の.icon-btnより横幅を可変にする */
+.nav-auth .icon-btn  {
+  width: auto;
+  padding: 0 12px;
+  gap: 6px;
+}
+
+.nav-auth-label  {
+  font-size: 13px;
+}
+
 /* ===== PAGE ===== */
 /* 全ページ共通: 下部に余白を確保 */
 .page  {
@@ -1364,6 +1392,17 @@ body  {
   /* ラベルが無くなる分、アイコンだけのボタンとして扱いやすいようパディングを調整 */
   .nav-link  {
     padding: 8px 10px;
+  }
+
+  /* 狭い画面ではメールアドレス・ログインラベルも隠してアイコンのみにする */
+  .nav-auth-email,
+  .nav-auth-label  {
+    display: none;
+  }
+
+  .nav-auth .icon-btn  {
+    width: 36px;
+    padding: 0;
   }
 
   /* モーダルのパディングを縮小 */

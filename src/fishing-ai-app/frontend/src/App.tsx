@@ -7,6 +7,9 @@
  */
 
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { AuthProvider } from "react-oidc-context";
+import { oidcConfig } from "./auth/authConfig";
+import { AuthTokenSync } from "./auth/AuthTokenSync";
 import { NavBar } from "./components/NavBar";
 import { TopPage } from "./pages/TopPage";
 import { MapPage } from "./pages/MapPage";
@@ -20,6 +23,9 @@ import "./styles.css";
 /**
  * ルートコンポーネント。
  *
+ * - AuthProvider（react-oidc-context）でCognito Hosted UI（Google認証）の
+ *   ログイン状態をアプリ全体に提供する。閲覧系ページは未ログインでも表示できるが、
+ *   お気に入り・投稿・AI相談・AI分析実行などの操作はログイン必須（各コンポーネント側でガードする）
  * - BrowserRouter で SPA ルーティングを有効化する
  * - NavBar を全ページ共通のナビゲーションバーとして表示する
  * - Routes で URL パスと各ページコンポーネントを対応づける
@@ -28,29 +34,33 @@ import "./styles.css";
  */
 export default function App() {
   return (
-    <BrowserRouter>
-      <div className="app-layout">
-        {/* 全ページ共通の固定ナビゲーションバー */}
-        <NavBar />
-        <main className="main-content">
-          <Routes>
-            {/* / : おすすめTOP3・AI実行ボタン */}
-            <Route path="/" element={<TopPage />} />
-            {/* /map : Google Maps スポット地図 */}
-            <Route path="/map" element={<MapPage />} />
-            {/* /spots : スポット一覧リスト */}
-            <Route path="/spots" element={<SpotsPage />} />
-            {/* /favorites : お気に入りスポット一覧 */}
-            <Route path="/favorites" element={<FavoritesPage />} />
-            {/* /posts : 釣果投稿一覧・投稿作成 */}
-            <Route path="/posts" element={<PostsPage />} />
-            {/* /chat : AIチャット（写真添付での魚種判定・エサ相談） */}
-            <Route path="/chat" element={<ChatPage />} />
-            {/* /guide : 使い方ガイド */}
-            <Route path="/guide" element={<GuidePage />} />
-          </Routes>
-        </main>
-      </div>
-    </BrowserRouter>
+    <AuthProvider {...oidcConfig}>
+      {/* ログイン状態が変わるたびにAPIクライアントのAuthorizationヘッダーを同期する */}
+      <AuthTokenSync />
+      <BrowserRouter>
+        <div className="app-layout">
+          {/* 全ページ共通の固定ナビゲーションバー */}
+          <NavBar />
+          <main className="main-content">
+            <Routes>
+              {/* / : おすすめTOP3・AI実行ボタン */}
+              <Route path="/" element={<TopPage />} />
+              {/* /map : Google Maps スポット地図 */}
+              <Route path="/map" element={<MapPage />} />
+              {/* /spots : スポット一覧リスト */}
+              <Route path="/spots" element={<SpotsPage />} />
+              {/* /favorites : お気に入りスポット一覧 */}
+              <Route path="/favorites" element={<FavoritesPage />} />
+              {/* /posts : 釣果投稿一覧・投稿作成 */}
+              <Route path="/posts" element={<PostsPage />} />
+              {/* /chat : AIチャット（写真添付での魚種判定・エサ相談） */}
+              <Route path="/chat" element={<ChatPage />} />
+              {/* /guide : 使い方ガイド */}
+              <Route path="/guide" element={<GuidePage />} />
+            </Routes>
+          </main>
+        </div>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

@@ -32,6 +32,29 @@ const api = axios.create({
 });
 
 /**
+ * 現在ログイン中ユーザーのid_token。AuthTokenSync が認証状態の変化のたびに更新する。
+ * axiosインスタンスをモジュールスコープで共有しているため、モジュールレベル変数として保持する。
+ */
+let authToken: string | null = null;
+
+/**
+ * ログイン中ユーザーのid_tokenを設定する（未ログイン時はnull）。
+ * 以後のリクエストからAuthorizationヘッダーに反映される。
+ *
+ * @param {string | null} token - Cognitoが発行したid_token
+ */
+export const setAuthToken = (token: string | null): void => {
+  authToken = token;
+};
+
+api.interceptors.request.use((config) => {
+  if (authToken) {
+    config.headers.Authorization = `Bearer ${authToken}`;
+  }
+  return config;
+});
+
+/**
  * おすすめスポット一覧を取得する。
  *
  * @returns {Promise<Recommendation[]>} スコア降順のおすすめスポットリスト
@@ -62,37 +85,35 @@ export const getPosts = async (): Promise<Post[]> => {
 };
 
 /**
- * 指定ユーザーのお気に入りスポット一覧を取得する。
+ * ログイン中ユーザーのお気に入りスポット一覧を取得する。
+ * ユーザーの識別はAuthorizationヘッダーのid_token（Cognito認証必須）で行う。
  *
- * @param {string} userId - ユーザーID
  * @returns {Promise<Favorite[]>} お気に入りスポットリスト
  */
-export const getFavorites = async (userId: string): Promise<Favorite[]> => {
-  const { data } = await api.get(`/favorites?userId=${userId}`);
+export const getFavorites = async (): Promise<Favorite[]> => {
+  const { data } = await api.get("/favorites");
   return data.items ?? data;
 };
 
 /**
- * お気に入りスポットを追加する。
+ * お気に入りスポットを追加する（Cognito認証必須）。
  *
- * @param {string} userId - ユーザーID
  * @param {string} spotId - 追加するスポットID
  * @param {string} [memo] - メモ（省略可）
  * @returns {Promise<void>}
  */
-export const addFavorite = async (userId: string, spotId: string, memo?: string): Promise<void> => {
-  await api.post("/favorites", { userId, spotId, memo });
+export const addFavorite = async (spotId: string, memo?: string): Promise<void> => {
+  await api.post("/favorites", { spotId, memo });
 };
 
 /**
- * お気に入りスポットを削除する。
+ * お気に入りスポットを削除する（Cognito認証必須）。
  *
- * @param {string} userId - ユーザーID
  * @param {string} spotId - 削除するスポットID
  * @returns {Promise<void>}
  */
-export const removeFavorite = async (userId: string, spotId: string): Promise<void> => {
-  await api.delete(`/favorites/${spotId}?userId=${userId}`);
+export const removeFavorite = async (spotId: string): Promise<void> => {
+  await api.delete(`/favorites/${spotId}`);
 };
 
 /**

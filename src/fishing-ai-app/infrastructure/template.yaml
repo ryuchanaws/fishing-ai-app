@@ -5,10 +5,12 @@
 # CloudFormation スタック名: fishing-ai-app
 #
 # 構成リソース:
-#   - DynamoDB テーブル x4（Spots / Recommendations / Favorites / Posts）
+#   - DynamoDB テーブル x6（Spots / Recommendations / Favorites / Posts / Chats / Usage）
 #   - Lambda 関数 x8（API系 x6 / バッチ系 x2）
-#   - API Gateway（SAM が自動生成）
+#   - API Gateway（明示的なAWS::Serverless::Apiリソース。Cognitoオーソライザーで一部エンドポイントを保護）
+#   - Cognito User Pool + Google IdP（Hosted UI経由のGoogle認証）
 #   - EventBridge スケジュール（毎日 AM6:00 JST）
+#   - AWS Budgets（月次利用料アラート）
 #
 # デプロイ:
 #   sam build -t infrastructure/template.yaml
@@ -41,6 +43,8 @@ Globals:
         FAVORITES_TABLE: !Ref FavoritesTable
         POSTS_TABLE: !Ref PostsTable
         CHATS_TABLE: !Ref ChatsTable
+        # 1ユーザー・1日あたりのAI呼び出し回数を記録するテーブル（Geminiコスト管理用、2026-07-26追加）
+        USAGE_TABLE: !Ref UsageTable
         # ユーザー投稿・スポット写真のアップロード先バケット名
         UPLOADS_BUCKET: !Ref UploadsBucket
         # Gemini API キーを SSM パラメータストアから動的に取得
@@ -49,14 +53,80 @@ Globals:
         # 手動バッチ実行 Lambda から呼び出し先 Lambda 名を参照するために設定
        #BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
 
-  Api:
-    # CORS 設定（フロントエンドの S3/CloudFront からのアクセスを許可）
-    Cors:
-      AllowMethods: "'GET,POST,DELETE,OPTIONS'"
-      AllowHeaders: "'Content-Type,Authorization'"
-      AllowOrigin: "'*'"   # 本番環境では CloudFront ドメインに絞ることを推奨
-
 Resources:
+
+  # ==============================================================
+  # 認証基盤（Cognito User Pool + Google IdP、Hosted UI経由のGoogle認証）
+  # 要件定義.html記載の「セキュリティ：Google認証（Cognito）」に対応（2026-07-26追加）
+  # ==============================================================
+
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: fishing-ai-app-users
+      AutoVerifiedAttributes: [email]
+      UsernameAttributes: [email]
+
+  # Hosted UIのドメイン。グローバルユニーク制約があるためアカウントIDを含めて衝突を避ける
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      UserPoolId: !Ref UserPool
+      Domain: !Sub "fishing-ai-app-${AWS::AccountId}"
+
+  # Googleを外部IdPとして連携。client_id/secretはSSMに事前登録したものをデプロイ時に動的解決する
+  # （{{resolve:ssm...}}はCloudFormationの機能で、SAMのSSMParameterReadPolicyとは別物。
+  # ここは実パラメータ名そのものを書くため先頭スラッシュが必要）
+  UserPoolGoogleIdP:
+    Type: AWS::Cognito::UserPoolIdentityProvider
+    Properties:
+      UserPoolId: !Ref UserPool
+      ProviderName: Google
+      ProviderType: Google
+      ProviderDetails:
+        client_id: "{{resolve:ssm:/fishing-ai/google-oauth-client-id}}"
+        client_secret: "{{resolve:ssm-secure:/fishing-ai/google-oauth-client-secret}}"
+        authorize_scopes: "email openid profile"
+      AttributeMapping:
+        email: email
+        username: sub
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    DependsOn: UserPoolGoogleIdP
+    Properties:
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      SupportedIdentityProviders: [Google]
+      AllowedOAuthFlows: [code]
+      AllowedOAuthScopes: [email, openid, profile]
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - https://d2ny5ej5kn6jzs.cloudfront.net/
+        - https://ryu-chan-fish.ryuchan-aws.workers.dev/
+        - http://localhost:5173/
+      LogoutURLs:
+        - https://d2ny5ej5kn6jzs.cloudfront.net/
+        - https://ryu-chan-fish.ryuchan-aws.workers.dev/
+        - http://localhost:5173/
+
+  # ==============================================================
+  # API Gateway（明示的なリソース。Cognitoオーソライザーを使うため
+  # SAMの暗黙的なAPI生成ではなくここで明示的に定義する。
+  # 既存のGlobals.Api.Corsはここに統合した）
+  # ==============================================================
+  Api:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Cors:
+        AllowMethods: "'GET,POST,DELETE,PUT,OPTIONS'"
+        AllowHeaders: "'Content-Type,Authorization'"
+        AllowOrigin: "'*'"   # 本番環境では CloudFront ドメインに絞ることを推奨
+      Auth:
+        Authorizers:
+          CognitoAuthorizer:
+            UserPoolArn: !GetAtt UserPool.Arn
 
   # ==============================================================
   # DynamoDB テーブル定義
@@ -123,6 +193,23 @@ Resources:
       KeySchema:
         - { AttributeName: userId, KeyType: HASH }
         - { AttributeName: chatId, KeyType: RANGE }
+
+  # ユーザーごとの1日あたりAI呼び出し回数を記録するテーブル（Geminiコスト管理用、2026-07-26追加）
+  # dateKeyは "chat#2026-07-26" のような "アクション名#日付" 形式。TTLで2日後に自動削除される
+  UsageTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-usage
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }
+        - { AttributeName: dateKey, AttributeType: S }
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }
+        - { AttributeName: dateKey, KeyType: RANGE }
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
 
   # ==============================================================
   # S3 バケット（スポット写真・投稿写真のアップロード先）
@@ -227,6 +314,8 @@ Resources:
           Properties:
             Path: /favorites
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # POST /favorites — お気に入りスポットを追加する
   CreateFavoriteFunction:
@@ -244,6 +333,8 @@ Resources:
           Properties:
             Path: /favorites
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # DELETE /favorites/{spotId} — お気に入りスポットを削除する
   DeleteFavoriteFunction:
@@ -260,6 +351,8 @@ Resources:
           Properties:
             Path: /favorites/{spotId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # POST /posts — 釣果投稿を作成する
   CreatePostFunction:
@@ -276,6 +369,8 @@ Resources:
           Properties:
             Path: /posts
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # DELETE /posts/{postId} — 釣果投稿を削除する
   DeletePostFunction:
@@ -292,6 +387,8 @@ Resources:
           Properties:
             Path: /posts/{postId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # PUT /spots/{spotId}/image — スポットの写真URLを設定する
   UpdateSpotImageFunction:
@@ -308,6 +405,8 @@ Resources:
           Properties:
             Path: /spots/{spotId}/image
             Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # POST /uploads/presign — S3への直接アップロード用の署名付きURLを発行する
   PresignUploadFunction:
@@ -324,6 +423,8 @@ Resources:
           Properties:
             Path: /uploads/presign
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）
   # 写真添付時はGeminiへマルチモーダル入力として渡すため、S3読み取り権限も付与
@@ -340,12 +441,16 @@ Resources:
             ParameterName: fishing-ai/gemini-api-key
         - S3ReadPolicy: { BucketName: !Ref UploadsBucket }
         - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
+        # 1日あたりのレート制限カウンタ読み書き用（2026-07-26追加）
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
       Events:
         Api:
           Type: Api
           Properties:
             Path: /chat
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # GET /chats — チャット履歴一覧（軽量: chatId/title/updatedAtのみ）を返す
   GetChatsFunction:
@@ -362,6 +467,8 @@ Resources:
           Properties:
             Path: /chats
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # GET /chats/{chatId} — 特定チャットの全メッセージを返す（履歴から再開する際に使用）
   GetChatFunction:
@@ -378,6 +485,8 @@ Resources:
           Properties:
             Path: /chats/{chatId}
             Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # DELETE /chats/{chatId} — チャットを削除する
   DeleteChatFunction:
@@ -394,6 +503,8 @@ Resources:
           Properties:
             Path: /chats/{chatId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # ==============================================================
   # Lambda 関数定義（バッチ系）
@@ -458,6 +569,8 @@ Resources:
           Properties:
             Path: /admin/run-ai-batch
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
 
   # 新規釣りスポット候補を Google Places API で探索し、Spots テーブルに追加するバッチ
   # 既存スポットとの重複（緯度経度が近い）は除外する
@@ -506,6 +619,41 @@ Resources:
           Properties:
             Path: /admin/run-spot-discovery
             Method: POST
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # ==============================================================
+  # AWS利用料アラート（月$10、80%/100%到達時にメール通知。2026-07-26追加）
+  # Gemini/Places等のGoogle Cloud側課金はAWS Budgetsでは検知できないため対象外
+  # （README にGoogle Cloud側の予算アラート設定手順を別途記載）
+  # ==============================================================
+  CostBudget:
+    Type: AWS::Budgets::Budget
+    Properties:
+      Budget:
+        BudgetName: fishing-ai-app-monthly
+        BudgetType: COST
+        TimeUnit: MONTHLY
+        BudgetLimit:
+          Amount: "10"
+          Unit: USD
+      NotificationsWithSubscribers:
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 80
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: rfunao0955@gmail.com
+        - Notification:
+            NotificationType: ACTUAL
+            ComparisonOperator: GREATER_THAN
+            Threshold: 100
+            ThresholdType: PERCENTAGE
+          Subscribers:
+            - SubscriptionType: EMAIL
+              Address: rfunao0955@gmail.com
 
 # ==============================================================
 # スタック出力
@@ -514,7 +662,17 @@ Resources:
 Outputs:
   ApiEndpoint:
     Description: "API Gateway のエンドポイント URL（VITE_API_BASE_URL に設定すること）"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+    # 明示的なApiリソース（論理ID: Api）を使うようになったため ${ServerlessRestApi} ではなく ${Api} を参照する
+    Value: !Sub "https://${Api}.execute-api.${AWS::Region}.amazonaws.com/Prod"
   UploadsBucketName:
     Description: "スポット写真・投稿写真のアップロード先S3バケット名"
     Value: !Ref UploadsBucket
+  UserPoolId:
+    Description: "Cognito User Pool ID（フロントエンドの src/auth/authConfig.ts に設定すること）"
+    Value: !Ref UserPool
+  UserPoolClientId:
+    Description: "Cognito User Pool Client ID（フロントエンドの src/auth/authConfig.ts に設定すること）"
+    Value: !Ref UserPoolClient
+  CognitoHostedUiDomain:
+    Description: "Cognito Hosted UIのドメイン。Google Cloud ConsoleのOAuthクライアントで承認済みリダイレクトURIに <この値>/oauth2/idpresponse を登録すること"
+    Value: !Sub "https://fishing-ai-app-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com"

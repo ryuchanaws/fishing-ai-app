@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { useAuth } from "react-oidc-context";
 import type { Recommendation, BatchStatus } from "../types";
 import { getRecommendations, runAiBatch } from "../api/client";
 
@@ -20,6 +21,8 @@ import { getRecommendations, runAiBatch } from "../api/client";
  * @returns {Function}         refetch         - おすすめデータを再取得する関数
  */
 export const useRecommendations = () => {
+  const auth = useAuth();
+
   /** スコア降順にソートされたおすすめスポット一覧 */
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
 
@@ -68,8 +71,16 @@ export const useRecommendations = () => {
    * updatedAt が起動時刻より新しくなった時点で完了とみなす。
    * 一定時間内に完了を確認できない場合は "timeout" として扱う
    * （失敗ではなく、裏側では処理が続いている可能性がある）。
+   *
+   * /admin/run-ai-batch はCognito認証必須のため、未ログイン時はバッチを起動せず
+   * ログイン画面へ誘導する。
    */
   const triggerAiBatch = useCallback(async () => {
+    if (!auth.isAuthenticated) {
+      auth.signinRedirect();
+      return;
+    }
+
     const startedAt = new Date().toISOString();
     setBatchStatus({ status: "running", startedAt });
     try {
@@ -110,7 +121,7 @@ export const useRecommendations = () => {
       startedAt,
       message: "バックグラウンドで実行中の可能性があります。しばらくしてから更新してください",
     });
-  }, []);
+  }, [auth]);
 
   /** マウント時におすすめデータを初回取得する */
   useEffect(() => {

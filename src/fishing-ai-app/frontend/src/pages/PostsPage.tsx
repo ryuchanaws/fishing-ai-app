@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useAuth } from "react-oidc-context";
 import { Fish, Plus, Trash2 } from "lucide-react";
 import { usePosts } from "../hooks/usePosts";
 import { PostForm } from "../components/PostForm";
@@ -20,7 +21,8 @@ import type { Spot } from "../types";
  * @returns {JSX.Element} 投稿一覧画面
  */
 export const PostsPage = () => {
-  const { posts, loading, error, submitPost, removePost } = usePosts();
+  const auth = useAuth();
+  const { posts, loading, error, deleteError, submitPost, removePost } = usePosts();
   const [spots, setSpots] = useState<Spot[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [searchParams] = useSearchParams();
@@ -46,6 +48,18 @@ export const PostsPage = () => {
     }
   };
 
+  /**
+   * 「投稿する」ボタンのクリック処理。
+   * /posts (POST) はCognito認証必須のため、未ログイン時はフォームを開かずログイン画面へ誘導する。
+   */
+  const handleOpenForm = () => {
+    if (!auth.isAuthenticated) {
+      auth.signinRedirect();
+      return;
+    }
+    setShowForm(true);
+  };
+
   return (
     <div className="page posts-page">
       <div className="page-header">
@@ -55,12 +69,13 @@ export const PostsPage = () => {
             {spotIdFilter ? `${spotName(spotIdFilter)}の投稿` : "みんなの釣果をチェック"}
           </p>
         </div>
-        <button className="icon-btn" onClick={() => setShowForm(true)} title="投稿する">
+        <button className="icon-btn" onClick={handleOpenForm} title="投稿する">
           <Plus size={18} />
         </button>
       </div>
 
       {error && <div className="error-banner">{error}</div>}
+      {deleteError && <div className="error-banner">{deleteError}</div>}
 
       {loading ? (
         <div className="loading-state">
@@ -80,9 +95,12 @@ export const PostsPage = () => {
               <div className="post-body">
                 <div className="post-header-row">
                   <p className="post-spot-name">{spotName(post.spotId)}</p>
-                  <button className="icon-btn" onClick={() => handleDelete(post.postId)} title="削除" aria-label="投稿を削除">
-                    <Trash2 size={14} />
-                  </button>
+                  {/* 自分の投稿にのみ削除ボタンを表示する（他人の投稿はbackend側でも403になるが、UI上も出さない） */}
+                  {auth.user?.profile.sub === post.userId && (
+                    <button className="icon-btn" onClick={() => handleDelete(post.postId)} title="削除" aria-label="投稿を削除">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
                 </div>
                 <p className="post-content">{post.content}</p>
                 {post.fishCaught && post.fishCaught.length > 0 && (
