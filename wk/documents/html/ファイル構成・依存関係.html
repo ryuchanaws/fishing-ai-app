@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>ファイル構成・依存関係マップ</title>
+<style>
+body { font-family: Arial, sans-serif; line-height:1.6; padding:24px; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:28px; }
+h3 { color:#2f5597; }
+.box { background:#f5f7fa; padding:12px; border-radius:6px; margin:10px 0; }
+pre { background:#eee; padding:10px; overflow-x:auto; }
+table { border-collapse: collapse; width: 100%; margin-top:10px; }
+td, th { border:1px solid #ccc; padding:8px; }
+th { background:#eef3f8; }
+code { background:#eee; padding:1px 4px; border-radius:3px; }
+</style>
+</head>
+
+<body>
+
+<h1>ファイル構成・依存関係マップ</h1>
+
+<div class="box">
+本書は「どの画面が何をするか」「どのファイルがどのファイルを読んでいるか」を一覧できるようにするための
+リファレンス。2026-07-26時点の実装内容に基づく。仕様の背景・意思決定理由は
+基本設計書.html／詳細設計.html／DEテーブル設計.html を参照。
+</div>
+
+<hr>
+
+<h2>1. 画面一覧（フロントエンド）</h2>
+
+<table>
+<tr><th>URL</th><th>画面名</th><th>ページファイル</th><th>やること</th></tr>
+<tr><td><code>/</code></td><td>おすすめ</td><td><code>pages/TopPage.tsx</code></td><td>AIスコア順のTOP3・一覧表示、AI分析実行、現在地から新スポット探索、現在地基準の再ランキング</td></tr>
+<tr><td><code>/map</code></td><td>地図</td><td><code>pages/MapPage.tsx</code></td><td>Google Maps上に全スポットをスコア色分けピン表示</td></tr>
+<tr><td><code>/spots</code></td><td>スポット</td><td><code>pages/SpotsPage.tsx</code></td><td>全スポット一覧（スコア・魚種・ナビリンク）</td></tr>
+<tr><td><code>/favorites</code></td><td>保存済み</td><td><code>pages/FavoritesPage.tsx</code></td><td>お気に入り登録済みスポットのみ表示</td></tr>
+<tr><td><code>/posts</code></td><td>釣果</td><td><code>pages/PostsPage.tsx</code></td><td>釣果投稿の一覧・作成・削除</td></tr>
+<tr><td><code>/chat</code></td><td>AI相談</td><td><code>pages/ChatPage.tsx</code></td><td>写真添付対応のAIチャット、会話履歴</td></tr>
+</table>
+
+<div class="box">
+ルーティング定義は <code>App.tsx</code>。全ページ共通のヘッダーは <code>components/NavBar.tsx</code>
+（ロゴクリックで <code>/</code> に戻る、モバイルではラベル非表示）。
+</div>
+
+---
+
+<h2>2. フロントエンド ファイル依存関係</h2>
+
+<h3>2.1 ページ → フック → コンポーネント</h3>
+
+<table>
+<tr><th>ページ</th><th>使用するフック</th><th>使用する主なコンポーネント</th></tr>
+<tr><td>TopPage.tsx</td><td>useRecommendations, useFavorites</td><td>RecommendationCard, AiBatchButton, SpotDiscoveryButton, DetailModal, NearbyModal</td></tr>
+<tr><td>MapPage.tsx</td><td>（なし。api/client を直接呼ぶ）</td><td>@vis.gl/react-google-maps（外部ライブラリ）</td></tr>
+<tr><td>SpotsPage.tsx</td><td>（なし。api/client を直接呼ぶ）</td><td>ImagePreviewPopover</td></tr>
+<tr><td>FavoritesPage.tsx</td><td>useFavorites, useRecommendations</td><td>RecommendationCard, DetailModal</td></tr>
+<tr><td>PostsPage.tsx</td><td>usePosts</td><td>PostForm</td></tr>
+<tr><td>ChatPage.tsx</td><td>useChat</td><td>ChatInput, ChatHistoryPanel</td></tr>
+</table>
+
+<h3>2.2 コンポーネント間の依存</h3>
+
+<table>
+<tr><th>コンポーネント</th><th>使われる場所</th><th>内部で使うもの</th></tr>
+<tr><td>RecommendationCard.tsx</td><td>TopPage, FavoritesPage, NearbyModal</td><td>utils/score.ts, ImagePreviewPopover</td></tr>
+<tr><td>DetailModal.tsx</td><td>TopPage, FavoritesPage, NearbyModal</td><td>utils/score.ts, ImagePreviewPopover, api/client（写真アップロード）</td></tr>
+<tr><td>NearbyModal.tsx</td><td>TopPage</td><td>hooks/useGeolocation, utils/distance.ts, utils/score.ts, RecommendationCard</td></tr>
+<tr><td>ImagePreviewPopover.tsx</td><td>RecommendationCard, SpotsPage, DetailModal</td><td>hooks/useLongPress, api/wikipedia.ts</td></tr>
+<tr><td>PostForm.tsx</td><td>PostsPage</td><td>api/client（署名付きアップロード・投稿作成）</td></tr>
+<tr><td>ChatInput.tsx / ChatHistoryPanel.tsx</td><td>ChatPage</td><td>（propsで受けたコールバックのみ。API直呼びなし）</td></tr>
+<tr><td>AiBatchButton.tsx / SpotDiscoveryButton.tsx</td><td>TopPage</td><td>SpotDiscoveryButtonのみ api/client（runSpotDiscovery）を直接呼ぶ</td></tr>
+</table>
+
+<h3>2.3 フック → APIクライアント</h3>
+
+<table>
+<tr><th>フック</th><th>呼び出す api/client.ts の関数</th></tr>
+<tr><td>useRecommendations.ts</td><td>getRecommendations, runAiBatch</td></tr>
+<tr><td>useFavorites.ts</td><td>getFavorites, addFavorite, removeFavorite</td></tr>
+<tr><td>usePosts.ts</td><td>getPosts, createPost, deletePost</td></tr>
+<tr><td>useChat.ts</td><td>sendChatMessage, getChatHistory, getChat, deleteChat, getPresignedUploadUrl, uploadImageToS3</td></tr>
+<tr><td>useGeolocation.ts</td><td>（なし。navigator.geolocation をラップするのみ）</td></tr>
+<tr><td>useLongPress.ts</td><td>（なし。hover/長押し検知のみのUIフック）</td></tr>
+</table>
+
+<div class="box">
+<code>api/client.ts</code> が全エンドポイント呼び出しを一手に引き受ける唯一の窓口（共有axiosインスタンス）。
+<code>api/wikipedia.ts</code> だけは例外で、魚種画像取得のため直接 <code>fetch()</code> でWikipedia REST APIを叩く
+（バックエンドを経由しない）。
+</div>
+
+<h3>2.4 純粋ユーティリティ</h3>
+
+<table>
+<tr><th>ファイル</th><th>内容</th><th>ユニットテスト</th></tr>
+<tr><td>utils/score.ts</td><td>スコア→色/ラベル変換、距離ベースのスコア近似再計算</td><td>utils/score.test.ts</td></tr>
+<tr><td>utils/distance.ts</td><td>haversine公式による2点間距離計算</td><td>utils/distance.test.ts</td></tr>
+<tr><td>types/index.ts</td><td>Spot/Recommendation/Favorite/Post/Chat等、全体で共有する型定義</td><td>-</td></tr>
+</table>
+
+---
+
+<h2>3. バックエンド ファイル構成（Lambda）</h2>
+
+<h3>3.1 API系（backend/lambda/api/handlers.py 1ファイルに集約）</h3>
+
+<table>
+<tr><th>関数</th><th>エンドポイント</th><th>読み書きするテーブル/バケット</th></tr>
+<tr><td>getRecommendationsHandler</td><td>GET /recommendations</td><td>Recommendations（読）, Spots（読、結合用）</td></tr>
+<tr><td>getSpotsHandler</td><td>GET /spots</td><td>Spots（読）</td></tr>
+<tr><td>putSpotImageHandler</td><td>PUT /spots/{spotId}/image</td><td>Spots（更新）</td></tr>
+<tr><td>getPostsHandler</td><td>GET /posts</td><td>Posts（読）</td></tr>
+<tr><td>postPostsHandler</td><td>POST /posts</td><td>Posts（作成）</td></tr>
+<tr><td>deletePostHandler</td><td>DELETE /posts/{postId}</td><td>Posts（削除）</td></tr>
+<tr><td>getFavoritesHandler</td><td>GET /favorites</td><td>Favorites（読）, Spots（読、結合用）</td></tr>
+<tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>Favorites（作成）</td></tr>
+<tr><td>deleteFavoritesHandler</td><td>DELETE /favorites/{spotId}</td><td>Favorites（削除）</td></tr>
+<tr><td>postPresignUploadHandler</td><td>POST /uploads/presign</td><td>S3 UploadsBucket（署名付きPOSTフォーム発行のみ）</td></tr>
+<tr><td>postChatHandler</td><td>POST /chat</td><td>Chats（読み書き）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
+<tr><td>getChatsHandler</td><td>GET /chats</td><td>Chats（読、軽量版）</td></tr>
+<tr><td>getChatHandler</td><td>GET /chats/{chatId}</td><td>Chats（読、全メッセージ）</td></tr>
+<tr><td>deleteChatHandler</td><td>DELETE /chats/{chatId}</td><td>Chats（削除）</td></tr>
+</table>
+
+<h3>3.2 バッチ系（backend/lambda/batch/）</h3>
+
+<table>
+<tr><th>ファイル</th><th>役割</th><th>他ファイルとの関係</th></tr>
+<tr><td>batch_common.py</td><td>DynamoDB/SSM/HTTP GETの共有ヘルパー</td><td>generate_score.py・discover_spots.py 両方から import される（循環import回避のため切り出し）</td></tr>
+<tr><td>generate_score.py</td><td>generateSpotScoreBatch本体。天気/潮汐取得→スコア計算→Gemini推薦理由生成→Recommendations保存</td><td>batch_common を import。handler冒頭で discover_spots.run_discovery() を呼ぶ（新スポット探索も内包）</td></tr>
+<tr><td>discover_spots.py</td><td>Google Places APIで新規スポットを探索しSpotsへ追加する中核ロジック（run_discovery）</td><td>batch_common を import。generate_score.py から呼ばれる他、discoverSpotsBatch Lambdaとしても単独稼働</td></tr>
+<tr><td>admin_trigger.py</td><td>フロントのボタンから対象バッチをEvent(非同期)invokeする汎用ラッパー</td><td>環境変数 BATCH_FUNCTION_NAME により、同一コードが adminRunAiBatch と adminRunSpotDiscovery の2つのLambdaとして再利用されている</td></tr>
+</table>
+
+<div class="box">
+<code>backend/seed_data.py</code> はLambdaではなく、初期スポットデータ投入用の手動実行スクリプト（<code>python seed_data.py</code>）。
+</div>
+
+<h3>3.3 SAM関数 ⇔ ハンドラー対応（infrastructure/template.yaml）</h3>
+
+<table>
+<tr><th>SAM論理ID</th><th>Handler指定</th><th>トリガー</th></tr>
+<tr><td>GenerateSpotScoreBatch</td><td>generate_score.handler</td><td>EventBridge（毎日AM6:00 JST）／AdminRunAiBatchFunction経由</td></tr>
+<tr><td>DiscoverSpotsBatch</td><td>discover_spots.handler</td><td>AdminRunSpotDiscoveryFunction経由のみ（自動スケジュールなし）</td></tr>
+<tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch）</td><td>POST /admin/run-ai-batch</td></tr>
+<tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch）</td><td>POST /admin/run-spot-discovery</td></tr>
+</table>
+
+---
+
+<h2>4. DynamoDBテーブル一覧</h2>
+
+<table>
+<tr><th>物理名</th><th>論理ID</th><th>キー構成</th><th>書き込み元</th></tr>
+<tr><td>fishing-spots</td><td>SpotsTable</td><td>spotId (PK)</td><td>seed_data.py（手動）, discover_spots.run_discovery, putSpotImageHandler</td></tr>
+<tr><td>fishing-recommendations</td><td>RecommendationsTable</td><td>spotId (PK)</td><td>generate_score.py（generateSpotScoreBatch実行時のみ）</td></tr>
+<tr><td>fishing-favorites</td><td>FavoritesTable</td><td>userId (PK) + spotId (SK)</td><td>postFavoritesHandler / deleteFavoritesHandler</td></tr>
+<tr><td>fishing-posts</td><td>PostsTable</td><td>postId (PK)</td><td>postPostsHandler / deletePostHandler</td></tr>
+<tr><td>fishing-chats</td><td>ChatsTable</td><td>userId (PK) + chatId (SK)</td><td>postChatHandler / deleteChatHandler</td></tr>
+</table>
+
+<div class="box">
+S3バケット（<code>fishing-ai-app-uploads-&lt;アカウントID&gt;</code>）はスポット写真・投稿写真・チャット添付画像の
+アップロード先。書き込みは署名付きPOSTフォーム経由のみ、読み取り（GetObject）のみ公開許可。
+</div>
+
+---
+
+<h2>5. データの流れ（代表的なシナリオ）</h2>
+
+<h3>5.1「AI分析を実行」を押したとき</h3>
+<pre>
+TopPage.tsx（ボタン）
+ → useRecommendations.ts の triggerAiBatch()
+ → api/client.ts の runAiBatch()
+ → POST /admin/run-ai-batch
+ → AdminRunAiBatchFunction (admin_trigger.py)
+ → GenerateSpotScoreBatch を非同期invoke
+ → generate_score.py の handler()
+    → discover_spots.run_discovery()（新スポット探索、Spotsへ追加）
+    → Spots全件スキャン→天気/潮汐取得→スコア計算→Gemini推薦理由生成
+    → Recommendations へ保存
+ → フロントは GET /recommendations を定期的にポーリングして完了を検知
+</pre>
+
+<h3>5.2 チャットで写真つきの質問をしたとき</h3>
+<pre>
+ChatInput.tsx（写真選択 + 送信）
+ → useChat.ts の send()
+   → api/client.ts の getPresignedUploadUrl() → POST /uploads/presign
+   → api/client.ts の uploadImageToS3()（S3へ直接POST、バックエンドを経由しない）
+   → api/client.ts の sendChatMessage() → POST /chat
+ → postChatHandler（handlers.py）
+   → S3から画像バイトを取得 → Geminiへマルチモーダル入力として送信
+   → Chatsテーブルへ保存 → 応答を同期的に返却
+</pre>
+
+---
+
+<h2>6. 関連ドキュメント</h2>
+<ul>
+<li>要件・仕様の背景: <a href="要件定義.html">要件定義.html</a>、<a href="企画書.html">企画書.html</a></li>
+<li>AWS構成・実装更新の経緯: <a href="基本設計書.html">基本設計書.html</a></li>
+<li>Lambda単位の詳細仕様: <a href="詳細設計.html">詳細設計.html</a></li>
+<li>テーブル設計: <a href="DEテーブル設計.html">DEテーブル設計.html</a></li>
+</ul>
+
+</body>
+</html>
