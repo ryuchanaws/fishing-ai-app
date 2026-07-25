@@ -1,0 +1,10 @@
+# requirements-dev.txt (バックエンドのテスト専用依存関係)
+# Lambdaのデプロイパッケージには含めない（backend/tests/ はSAMのCodeUri外にあるため
+# 自動的に巻き込まれない。念のためこのファイルもLambdaへは同梱しない）。
+#
+# インストール: pip install -r requirements-dev.txt -r lambda/api/requirements.txt -r lambda/batch/requirements.txt
+# 実行:         pytest backend/tests -v
+
+pytest
+# DynamoDB等のAWSサービスをモックするためのライブラリ。実AWSに接続せずハンドラーをテストできる
+moto[dynamodb]

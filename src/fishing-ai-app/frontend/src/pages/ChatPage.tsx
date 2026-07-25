@@ -23,7 +23,7 @@ import { ChatHistoryPanel } from "../components/ChatHistoryPanel";
  * @returns {JSX.Element} AIチャット画面
  */
 export const ChatPage = () => {
-  const { messages, sending, error, history, historyLoading, send, startNewChat, loadHistory, openChat } =
+  const { messages, sending, error, history, historyLoading, send, startNewChat, loadHistory, openChat, removeChat } =
     useChat();
   const [showHistory, setShowHistory] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -102,6 +102,7 @@ export const ChatPage = () => {
           history={history}
           loading={historyLoading}
           onSelect={handleSelectHistory}
+          onDelete={removeChat}
           onClose={() => setShowHistory(false)}
         />
       )}

@@ -45,6 +45,7 @@ th { background:#eef3f8; }
 <tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td></tr>
 <tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td></tr>
 <tr><td>createPostHandler【2026-07-24 追加】</td><td>釣果投稿の作成</td><td>API Gateway（POST /posts）</td></tr>
+<tr><td>deletePostHandler【2026-07-25 追加】</td><td>釣果投稿の削除</td><td>API Gateway（DELETE /posts/{postId}）</td></tr>
 <tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td></tr>
 <tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td></tr>
 <tr><td>updateSpotImageHandler【2026-07-24 追加】</td><td>スポット写真URLの設定</td><td>API Gateway（PUT /spots/{spotId}/image）</td></tr>
@@ -52,6 +53,7 @@ th { background:#eef3f8; }
 <tr><td>postChatHandler【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信・Gemini応答生成</td><td>API Gateway（POST /chat）</td></tr>
 <tr><td>getChatsHandler【2026-07-25 追加】</td><td>チャット履歴一覧取得</td><td>API Gateway（GET /chats）</td></tr>
 <tr><td>getChatHandler【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td><td>API Gateway（GET /chats/{chatId}）</td></tr>
+<tr><td>deleteChatHandler【2026-07-25 追加】</td><td>チャットの削除</td><td>API Gateway（DELETE /chats/{chatId}）</td></tr>
 </table>
 
 ---
@@ -312,7 +314,26 @@ GET /chats/{chatId} は履歴から会話を再開する際に全メッセージ
 
 ---
 
-<h2>7. まとめ</h2>
+<h2>7. テスト戦略【2026-07-25 追加】</h2>
+
+<ul>
+<li>バックエンド: pytest。純粋関数（calc_score・haversine_km等）の単体テストに加え、
+moto でDynamoDBをモックしたハンドラーレベルのテスト（投稿・チャットの作成→削除ライフサイクル等）</li>
+<li>フロントエンド ユニットテスト: Vitest + React Testing Library（utils/の純粋関数、
+RecommendationCardのレンダリングテスト）</li>
+<li>フロントエンド E2E・VRT: Playwright。実AWSには接続せず <code>page.route()</code> でAPIレスポンスを
+モックする。VRT（<code>toHaveScreenshot</code>）のベースライン画像はCI環境で生成する必要がある
+（OS依存のため。詳細はREADME参照）</li>
+<li>CI: <code>.github/workflows/test.yml</code> が <code>pull_request → main</code> をトリガーに実行される
+（<code>deploy.yml</code> の <code>push → main</code> トリガーとは分離。デプロイは行わずテストのみ）</li>
+</ul>
+
+<div class="box">
+AIによる自動コードレビュー（Claude API等）はPRごとの課金が発生するため今回は見送った。
+GitHub標準のPRレビュー機能（コメント・Approve/Request changes）は追加設定なしで利用できる。
+</div>
+
+<h2>8. まとめ</h2>
 
 <div class="box">
 Lambdaは「API処理」と「バッチ処理」に完全分離し、  

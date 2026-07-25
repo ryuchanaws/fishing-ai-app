@@ -8,7 +8,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Fish, Plus } from "lucide-react";
+import { Fish, Plus, Trash2 } from "lucide-react";
 import { usePosts } from "../hooks/usePosts";
 import { PostForm } from "../components/PostForm";
 import { getSpots } from "../api/client";
@@ -20,7 +20,7 @@ import type { Spot } from "../types";
  * @returns {JSX.Element} 投稿一覧画面
  */
 export const PostsPage = () => {
-  const { posts, loading, error, submitPost } = usePosts();
+  const { posts, loading, error, submitPost, removePost } = usePosts();
   const [spots, setSpots] = useState<Spot[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [searchParams] = useSearchParams();
@@ -34,6 +34,17 @@ export const PostsPage = () => {
   const spotName = (spotId: string) => spots.find((s) => s.spotId === spotId)?.name ?? spotId;
 
   const visiblePosts = spotIdFilter ? posts.filter((p) => p.spotId === spotIdFilter) : posts;
+
+  /**
+   * 確認ダイアログを挟んで投稿を削除する。
+   *
+   * @param {string} postId - 削除対象の投稿ID
+   */
+  const handleDelete = (postId: string) => {
+    if (window.confirm("この投稿を削除しますか？")) {
+      removePost(postId);
+    }
+  };
 
   return (
     <div className="page posts-page">
@@ -67,7 +78,12 @@ export const PostsPage = () => {
             <div key={post.postId} className="post-card">
               {post.imageUrl && <img className="post-image" src={post.imageUrl} alt={post.content} loading="lazy" />}
               <div className="post-body">
-                <p className="post-spot-name">{spotName(post.spotId)}</p>
+                <div className="post-header-row">
+                  <p className="post-spot-name">{spotName(post.spotId)}</p>
+                  <button className="icon-btn" onClick={() => handleDelete(post.postId)} title="削除" aria-label="投稿を削除">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
                 <p className="post-content">{post.content}</p>
                 {post.fishCaught && post.fishCaught.length > 0 && (
                   <div className="fish-tags">

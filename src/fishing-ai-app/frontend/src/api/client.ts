@@ -150,6 +150,16 @@ export const createPost = async (input: {
 };
 
 /**
+ * 釣果投稿を削除する。
+ *
+ * @param {string} postId - 削除対象の投稿ID
+ * @returns {Promise<void>}
+ */
+export const deletePost = async (postId: string): Promise<void> => {
+  await api.delete(`/posts/${postId}`);
+};
+
+/**
  * スポットの写真URLを設定する。
  *
  * @param {string} spotId - 対象スポットID
@@ -253,4 +263,14 @@ export const getChatHistory = async (): Promise<ChatSummary[]> => {
 export const getChat = async (chatId: string): Promise<Chat> => {
   const { data } = await api.get(`/chats/${chatId}`);
   return data;
+};
+
+/**
+ * チャットを削除する。
+ *
+ * @param {string} chatId - 削除対象のチャットID
+ * @returns {Promise<void>}
+ */
+export const deleteChat = async (chatId: string): Promise<void> => {
+  await api.delete(`/chats/${chatId}`);
 };

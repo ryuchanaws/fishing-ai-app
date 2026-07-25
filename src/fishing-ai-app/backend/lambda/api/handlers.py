@@ -9,6 +9,7 @@ Endpoints:
     PUT    /spots/{spotId}/image
     GET    /posts
     POST   /posts
+    DELETE /posts/{postId}
     GET    /favorites
     POST   /favorites
     DELETE /favorites/{spotId}
@@ -16,6 +17,7 @@ Endpoints:
     POST   /chat
     GET    /chats
     GET    /chats/{chatId}
+    DELETE /chats/{chatId}
 
 Requirements:
     - 環境変数にDynamoDBテーブル名が設定済み
@@ -436,6 +438,34 @@ def postPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
 
 # ─────────────────────────────
+# /posts/{postId} (DELETE)
+# ─────────────────────────────
+@handler_guard
+def deletePostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """DELETE /posts/{postId} — 釣果投稿を削除する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            pathParameters.postId (str): 削除対象の投稿ID
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"message": "deleted"}
+            postId 未指定時 400: {"error": "postId is required"}
+    """
+    post_id = (event.get("pathParameters") or {}).get("postId")
+
+    if not post_id:
+        return _resp(400, {"error": "postId is required"})
+
+    table = _get_table(POSTS_TABLE)
+    table.delete_item(Key={"postId": post_id})
+
+    return _resp(200, {"message": "deleted"})
+
+
+# ─────────────────────────────
 # /spots/{spotId}/image (PUT)
 # ─────────────────────────────
 @handler_guard
@@ -732,3 +762,31 @@ def getChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         return _resp(404, {"error": "chat not found"})
 
     return _resp(200, item)
+
+
+# ─────────────────────────────
+# /chats/{chatId} (DELETE)
+# ─────────────────────────────
+@handler_guard
+def deleteChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """DELETE /chats/{chatId} — チャットを削除する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            pathParameters.chatId (str): 削除対象のチャットID
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"message": "deleted"}
+            chatId 未指定時 400: {"error": "chatId is required"}
+    """
+    chat_id = (event.get("pathParameters") or {}).get("chatId")
+
+    if not chat_id:
+        return _resp(400, {"error": "chatId is required"})
+
+    table = _get_table(CHATS_TABLE)
+    table.delete_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id})
+
+    return _resp(200, {"message": "deleted"})

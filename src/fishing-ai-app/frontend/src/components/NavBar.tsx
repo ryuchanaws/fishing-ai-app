@@ -6,7 +6,7 @@
  * アクティブなリンクは react-router-dom の NavLink が自動で検出する。
  */
 
-import { NavLink } from "react-router-dom";
+import { NavLink, Link } from "react-router-dom";
 import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle } from "lucide-react";
 
 /**
@@ -14,17 +14,19 @@ import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle } from "lucide-reac
  *
  * - 画面上部に固定表示（CSS: position: fixed）
  * - NavLink の isActive を使ってアクティブなリンクにクラスを付与する
- * - モバイルではアプリ名を非表示にしてアイコンのみ表示する
+ * - モバイルではアプリ名・各リンクのラベル文字を非表示にしてアイコンのみ表示する
+ *   （2026-07-25: リンク数が増えて折り返し表示になり見づらかったため）
+ * - ロゴ（アイコン+アプリ名）クリックでトップページ（おすすめ）に戻れる
  *
  * @returns {JSX.Element} ナビゲーションバー
  */
 export const NavBar = () => (
   <nav className="navbar">
-    {/* ブランドロゴ: アプリ名とアイコン */}
-    <div className="nav-brand">
+    {/* ブランドロゴ: アプリ名とアイコン。クリックでトップページに戻る */}
+    <Link to="/" className="nav-brand">
       <span className="nav-logo">🎣</span>
       <span className="nav-title">つり羅針盤</span>
-    </div>
+    </Link>
 
     {/* ナビゲーションリンク一覧 */}
     <div className="nav-links">

@@ -5,7 +5,7 @@
  * DetailModal/NearbyModal と同じ .modal-backdrop/.modal-panel パターンを流用する。
  */
 
-import { X, MessageSquareText } from "lucide-react";
+import { X, MessageSquareText, Trash2 } from "lucide-react";
 import type { ChatSummary } from "../types";
 
 /**
@@ -18,6 +18,8 @@ interface ChatHistoryPanelProps {
   loading: boolean;
   /** 履歴項目クリック時に呼び出す関数（該当チャットを開く） */
   onSelect: (chatId: string) => void;
+  /** 削除ボタンクリック時に呼び出す関数（該当チャットを削除する） */
+  onDelete: (chatId: string) => void;
   /** モーダルを閉じる関数 */
   onClose: () => void;
 }
@@ -28,7 +30,21 @@ interface ChatHistoryPanelProps {
  * @param {ChatHistoryPanelProps} props
  * @returns {JSX.Element} チャット履歴モーダル
  */
-export const ChatHistoryPanel = ({ history, loading, onSelect, onClose }: ChatHistoryPanelProps) => {
+export const ChatHistoryPanel = ({ history, loading, onSelect, onDelete, onClose }: ChatHistoryPanelProps) => {
+  /**
+   * 確認ダイアログを挟んでチャットを削除する。
+   * 親要素（履歴項目）のクリック（会話を開く）へ伝播しないよう stopPropagation する。
+   *
+   * @param {React.MouseEvent} e - クリックイベント
+   * @param {string} chatId - 削除対象のチャットID
+   */
+  const handleDelete = (e: React.MouseEvent, chatId: string) => {
+    e.stopPropagation();
+    if (window.confirm("この会話を削除しますか？")) {
+      onDelete(chatId);
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal-panel" onClick={(e) => e.stopPropagation()}>
@@ -51,11 +67,25 @@ export const ChatHistoryPanel = ({ history, loading, onSelect, onClose }: ChatHi
           ) : (
             <div className="chat-history-list">
               {history.map((h) => (
-                <button key={h.chatId} className="chat-history-item" onClick={() => onSelect(h.chatId)}>
+                <div
+                  key={h.chatId}
+                  className="chat-history-item"
+                  onClick={() => onSelect(h.chatId)}
+                  role="button"
+                  tabIndex={0}
+                >
                   <MessageSquareText size={16} />
                   <span className="chat-history-title">{h.title || "無題の会話"}</span>
                   <span className="chat-history-date">{new Date(h.updatedAt).toLocaleString("ja-JP")}</span>
-                </button>
+                  <button
+                    className="icon-btn"
+                    onClick={(e) => handleDelete(e, h.chatId)}
+                    title="削除"
+                    aria-label="会話を削除"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               ))}
             </div>
           )}
