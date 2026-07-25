@@ -13,6 +13,9 @@ Endpoints:
     POST   /favorites
     DELETE /favorites/{spotId}
     POST   /uploads/presign
+    POST   /chat
+    GET    /chats
+    GET    /chats/{chatId}
 
 Requirements:
     - 環境変数にDynamoDBテーブル名が設定済み
@@ -26,9 +29,12 @@ import logging
 from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 import boto3
+import google.generativeai as genai
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 
 # ─────────────────────────────
 # logging
@@ -48,6 +54,7 @@ SPOTS_TABLE = os.environ.get("SPOTS_TABLE", "fishing-spots")
 RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recommendations")
 FAVORITES_TABLE = os.environ.get("FAVORITES_TABLE", "fishing-favorites")
 POSTS_TABLE = os.environ.get("POSTS_TABLE", "fishing-posts")
+CHATS_TABLE = os.environ.get("CHATS_TABLE", "fishing-chats")
 
 # ─────────────────────────────
 # S3（スポット写真・投稿写真のアップロード先）
@@ -62,6 +69,18 @@ ALLOWED_CONTENT_TYPES = {
     "image/png": "png",
     "image/webp": "webp",
 }
+
+# ─────────────────────────────
+# SSM（Gemini APIキー。postChatHandlerのAIチャット応答生成に使用）
+# ─────────────────────────────
+ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
+# "/"を含む階層型のSSMパラメータ名は先頭スラッシュ必須（AWSの仕様。generate_score.pyと同じ注意点）
+GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
+
+# 直近何往復分の会話をGeminiに渡すか（トークン量とレイテンシを抑えるための上限）
+CHAT_HISTORY_LIMIT = 10
+# ユーザー単体運用のため固定（他エンドポイントと同じ規約）
+DEFAULT_USER_ID = "user-001"
 
 
 # ─────────────────────────────
@@ -488,3 +507,207 @@ def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, A
     public_url = f"https://{UPLOADS_BUCKET}.s3.{os.environ.get('AWS_REGION', 'ap-northeast-1')}.amazonaws.com/{key}"
 
     return _resp(200, {"uploadUrl": upload_url, "publicUrl": public_url})
+
+
+# ─────────────────────────────
+# AIチャット共通ヘルパー
+# ─────────────────────────────
+def _get_gemini_api_key() -> str:
+    """SSM Parameter StoreからGemini APIキーを取得する（generate_score.pyと同じパターン）。"""
+    try:
+        response = ssm.get_parameter(Name=GEMINI_API_KEY_PARAM, WithDecryption=True)
+        return response["Parameter"]["Value"]
+    except ClientError as e:
+        print(f"SSM get_parameter error: {e}")
+        return ""
+
+
+def _fetch_image_bytes(image_url: str) -> tuple[bytes, str] | None:
+    """S3公開URLからオブジェクトキーを抽出し、画像バイトを取得する。
+
+    Args:
+        image_url (str): アップロード済み画像の公開URL（UploadsBucket配下）
+
+    Returns:
+        tuple[bytes, str] | None: (画像バイト列, Content-Type)。取得失敗時は None
+    """
+    try:
+        key = urlparse(image_url).path.lstrip("/")
+        obj = s3.get_object(Bucket=UPLOADS_BUCKET, Key=key)
+        return obj["Body"].read(), obj.get("ContentType", "image/jpeg")
+    except Exception as e:
+        print(f"S3 get_object error for chat image: {e}")
+        return None
+
+
+def _generate_chat_reply(history: list[dict[str, Any]], message: str, image_url: str | None) -> str:
+    """Gemini APIを使ってチャット応答を生成する（テキスト、または画像+テキストのマルチモーダル）。
+
+    APIキー未設定時・エラー時はフォールバック文言を返し、Lambdaを継続させる
+    （generate_score.py の generate_reason() と同じ思想）。
+
+    Args:
+        history     (list[dict[str, Any]]): 直近の会話履歴（{"role", "content"}のリスト）
+        message     (str): 今回のユーザーメッセージ
+        image_url   (str | None): 添付画像の公開URL（省略可）
+
+    Returns:
+        str: AIの応答テキスト
+    """
+    api_key = _get_gemini_api_key()
+    if not api_key:
+        return "現在AI機能を利用できません（APIキー未設定）。しばらくしてからお試しください。"
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            "gemini-flash-latest",
+            system_instruction=(
+                "あなたは釣行AIアプリに組み込まれた釣りの専門家アシスタントです。"
+                "魚種の判定、エサ・仕掛けの適否、釣果へのコメントなど、釣りに関する質問に"
+                "日本語で親しみやすく、かつ具体的に答えてください。写真が添付されている場合は"
+                "その内容（魚種・エサ・釣り場の様子等）を踏まえて回答してください。"
+            ),
+        )
+
+        # 直近の履歴をGeminiのchat形式（role: user/model）に変換
+        chat_history = [
+            {"role": "user" if h["role"] == "user" else "model", "parts": [h["content"]]}
+            for h in history[-CHAT_HISTORY_LIMIT:]
+        ]
+        chat = model.start_chat(history=chat_history)
+
+        parts: list[Any] = [message]
+        if image_url:
+            fetched = _fetch_image_bytes(image_url)
+            if fetched:
+                image_bytes, content_type = fetched
+                parts.append({"mime_type": content_type, "data": image_bytes})
+
+        response = chat.send_message(parts)
+        return response.text.strip()
+
+    except Exception as e:
+        print(f"Gemini chat error: {e}")
+        return "回答の生成に失敗しました。もう一度お試しください。"
+
+
+# ─────────────────────────────
+# /chat (POST)
+# ─────────────────────────────
+@handler_guard
+def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）。
+
+    chatId が未指定の場合は新規チャットを作成する。写真が添付されている場合は
+    Geminiへマルチモーダル入力として渡す。応答は同期的に返す
+    （バッチ処理と違い、チャットのUXにはポーリングが合わないため）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            body (str): JSON文字列。message(必須) / chatId(省略可) / imageUrl(省略可) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"chatId": str, "reply": str, "updatedAt": str}
+            message 未指定時 400: {"error": "..."}
+    """
+    body = json.loads(event.get("body") or "{}")
+    message = body.get("message")
+    chat_id = body.get("chatId")
+    image_url = body.get("imageUrl")
+
+    if not message:
+        return _resp(400, {"error": "message is required"})
+
+    table = _get_table(CHATS_TABLE)
+    now = datetime.now(timezone.utc).isoformat()
+
+    if chat_id:
+        existing = table.get_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id}).get("Item")
+        messages: list[dict[str, Any]] = existing["messages"] if existing else []
+        title = existing["title"] if existing else message[:30]
+        created_at = existing["createdAt"] if existing else now
+    else:
+        chat_id = str(uuid.uuid4())
+        messages = []
+        title = message[:30]
+        created_at = now
+
+    messages.append({"role": "user", "content": message, "imageUrl": image_url or "", "createdAt": now})
+
+    reply = _generate_chat_reply(messages[:-1], message, image_url)
+
+    reply_at = datetime.now(timezone.utc).isoformat()
+    messages.append({"role": "assistant", "content": reply, "createdAt": reply_at})
+
+    table.put_item(Item={
+        "userId": DEFAULT_USER_ID,
+        "chatId": chat_id,
+        "title": title,
+        "messages": messages,
+        "createdAt": created_at,
+        "updatedAt": reply_at,
+    })
+
+    return _resp(200, {"chatId": chat_id, "reply": reply, "updatedAt": reply_at})
+
+
+# ─────────────────────────────
+# /chats (GET)
+# ─────────────────────────────
+@handler_guard
+def getChatsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /chats — チャット履歴一覧を新しい順で返す。
+
+    履歴パネルの一覧表示用に、messages配列を含まない軽量なレスポンスを返す。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"items": [{chatId, title, updatedAt}, ...]}（updatedAt降順）
+    """
+    table = _get_table(CHATS_TABLE)
+    resp = table.query(KeyConditionExpression=Key("userId").eq(DEFAULT_USER_ID))
+    items = resp.get("Items", [])
+
+    summaries = [
+        {"chatId": i["chatId"], "title": i.get("title", ""), "updatedAt": i.get("updatedAt", "")}
+        for i in items
+    ]
+    summaries.sort(key=lambda x: x["updatedAt"], reverse=True)
+
+    return _resp(200, {"items": summaries})
+
+
+# ─────────────────────────────
+# /chats/{chatId} (GET)
+# ─────────────────────────────
+@handler_guard
+def getChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /chats/{chatId} — 特定チャットの全メッセージを返す。
+
+    履歴一覧から選んだ会話を再開する際に使用する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+            pathParameters.chatId (str): 対象チャットID
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {chatId, title, messages, createdAt, updatedAt}
+            存在しない場合 404: {"error": "..."}
+    """
+    chat_id = (event.get("pathParameters") or {}).get("chatId")
+
+    table = _get_table(CHATS_TABLE)
+    item = table.get_item(Key={"userId": DEFAULT_USER_ID, "chatId": chat_id}).get("Item")
+
+    if not item:
+        return _resp(404, {"error": "chat not found"})
+
+    return _resp(200, item)

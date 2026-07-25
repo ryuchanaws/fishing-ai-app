@@ -1018,6 +1018,156 @@ body  {
   padding: 10px 12px;
 }
 
+/* ===== CHAT ===== */
+.chat-messages  {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 200px;
+  margin-bottom: 16px;
+}
+
+.chat-bubble  {
+  max-width: 80%;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.chat-bubble.user  {
+  align-self: flex-end;
+  background: var(--accent2);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+}
+
+.chat-bubble.assistant  {
+  align-self: flex-start;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.chat-bubble-loading  {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text2);
+}
+
+.chat-bubble-image  {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+}
+
+.chat-bubble-text  {
+  white-space: pre-wrap;
+}
+
+/* 画面スクロールに追従して常に下部に表示される入力欄 */
+.chat-input-bar  {
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 10px 0 4px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input-row  {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-text-input  {
+  flex: 1;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.chat-send-btn  {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: #fff;
+}
+
+.chat-image-preview  {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.chat-image-preview img  {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.chat-image-remove  {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: rgba(0,0,0,0.6);
+  border: none;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+}
+
+.chat-history-list  {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-history-item  {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+}
+
+.chat-history-item:hover  {
+  border-color: var(--accent2);
+}
+
+.chat-history-title  {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-history-date  {
+  font-size: 11px;
+  color: var(--text2);
+  flex-shrink: 0;
+}
+
 /* ===== UTILITIES ===== */
 /* アイコンボタン: ナビ・更新など汎用の正方形ボタン */
 .icon-btn  {

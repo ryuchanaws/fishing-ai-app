@@ -13,6 +13,7 @@ import { MapPage } from "./pages/MapPage";
 import { SpotsPage } from "./pages/SpotsPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { PostsPage } from "./pages/PostsPage";
+import { ChatPage } from "./pages/ChatPage";
 import "./styles.css";
 
 /**
@@ -42,6 +43,8 @@ export default function App() {
             <Route path="/favorites" element={<FavoritesPage />} />
             {/* /posts : 釣果投稿一覧・投稿作成 */}
             <Route path="/posts" element={<PostsPage />} />
+            {/* /chat : AIチャット（写真添付での魚種判定・エサ相談） */}
+            <Route path="/chat" element={<ChatPage />} />
           </Routes>
         </main>
       </div>

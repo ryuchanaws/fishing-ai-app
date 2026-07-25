@@ -49,6 +49,9 @@ th { background:#eef3f8; }
 <tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td></tr>
 <tr><td>updateSpotImageHandler【2026-07-24 追加】</td><td>スポット写真URLの設定</td><td>API Gateway（PUT /spots/{spotId}/image）</td></tr>
 <tr><td>presignUploadHandler【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td><td>API Gateway（POST /uploads/presign）</td></tr>
+<tr><td>postChatHandler【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信・Gemini応答生成</td><td>API Gateway（POST /chat）</td></tr>
+<tr><td>getChatsHandler【2026-07-25 追加】</td><td>チャット履歴一覧取得</td><td>API Gateway（GET /chats）</td></tr>
+<tr><td>getChatHandler【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td><td>API Gateway（GET /chats/{chatId}）</td></tr>
 </table>
 
 ---
@@ -241,6 +244,37 @@ generate_score.py が discover_spots.py の run_discovery() を直接importし�
 
 <div class="box">
 アップロード先S3バケット（UploadsBucket）はGetObjectのみ公開許可、書き込みは署名付きURL経由のみに限定している。
+</div>
+
+<h3>postChatHandler / getChatsHandler / getChatHandler【2026-07-25 追加】</h3>
+
+<div class="box">
+目的：写真添付にも対応したAIチャット機能。「カメラ機能」と「チャット機能」を別々に作る案もあったが、
+ユーザーの意向により写真添付（端末アルバムから選択 or その場で撮影、どちらも同じ
+&lt;input type="file"&gt;で実現し、撮影用は capture="environment" 属性を付与）をチャット入力の一部として統合した。
+</div>
+
+<h4>処理フロー（POST /chat）</h4>
+<pre>
+1. chatId が未指定なら新規チャットとしてuuid発行、指定されていればChatsTableから既存messagesを読み込み
+2. ユーザーメッセージ（+ imageUrlがあればS3から画像バイトを取得）をmessagesに追記
+3. Geminiへ直近10往復分の会話履歴 + 今回のメッセージ（+画像）をマルチモーダル入力として送信
+   （システムプロンプトで「釣りの専門家アシスタント」という役割を明示）
+4. 応答をmessagesに追記し、ChatsTableへput_item（アイテム全体を上書き）
+5. { chatId, reply, updatedAt } を同期的に返却
+</pre>
+
+<div class="box">
+他のAI機能（generateSpotScoreBatch等）は API Gateway の29秒タイムアウトを避けるため
+非同期トリガー+ポーリング方式を採っているが、チャットはUX上ポーリングが合わないため
+<b>同期呼び出しのまま</b>とし、Lambda Timeoutを29秒より短い25秒に設定することで対処した
+（テキスト+画像1枚のGemini呼び出しは通常数秒〜十数秒で収まる想定）。
+</div>
+
+<div class="box">
+GET /chats は履歴パネルの一覧表示用に messages を含まない軽量なレスポンス（chatId/title/updatedAtのみ）を返す。
+GET /chats/{chatId} は履歴から会話を再開する際に全メッセージを返す。「新しい会話」開始時はDBに何も書き込まず、
+次にメッセージを送信した時点で初めて新規チャットとして保存される。
 </div>
 
 <h2>5. 非機能要件</h2>

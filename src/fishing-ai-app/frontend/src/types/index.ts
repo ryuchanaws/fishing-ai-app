@@ -132,3 +132,42 @@ export interface UploadPresignResponse {
   /** アップロード完了後に画像を参照するための公開URL */
   publicUrl: string;
 }
+
+/**
+ * AIチャットの1メッセージ。
+ * DynamoDB の fishing-chats テーブルの messages 配列要素に対応する。
+ */
+export interface ChatMessage {
+  /** 発言者。ユーザー発言かAI応答か */
+  role: "user" | "assistant";
+  /** メッセージ本文 */
+  content: string;
+  /** 添付画像のURL（省略可・userロールのみ有効） */
+  imageUrl?: string;
+  /** 発言日時（ISO 8601 形式） */
+  createdAt: string;
+}
+
+/**
+ * チャット履歴一覧の1件（軽量版・messagesを含まない）。
+ * 履歴パネルの一覧表示に使用する。
+ */
+export interface ChatSummary {
+  /** チャットの一意識別子（PK・Chatsテーブルと結合キー） */
+  chatId: string;
+  /** チャットのタイトル（最初のユーザー発言から自動生成） */
+  title: string;
+  /** 最終更新日時（ISO 8601 形式・履歴一覧のソートに使用） */
+  updatedAt: string;
+}
+
+/**
+ * チャットの全メッセージを含む完全なデータ。
+ * 履歴から会話を再開する際（GET /chats/{chatId}）に使用する。
+ */
+export interface Chat extends ChatSummary {
+  /** 会話の全メッセージ（古い順） */
+  messages: ChatMessage[];
+  /** チャット作成日時（ISO 8601 形式） */
+  createdAt: string;
+}

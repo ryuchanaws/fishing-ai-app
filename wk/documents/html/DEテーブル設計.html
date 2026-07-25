@@ -113,6 +113,25 @@ SK = spotId
 
 ---
 
+<h2>5b. Chatsテーブル【2026-07-25 実装】</h2>
+
+<table>
+<tr><th>項目</th><th>内容</th></tr>
+<tr><td>PK</td><td>userId（固定値 "user-001"）</td></tr>
+<tr><td>SK</td><td>chatId</td></tr>
+<tr><td>title</td><td>会話タイトル（最初のユーザー発言の先頭30文字程度から自動生成）</td></tr>
+<tr><td>messages</td><td>メッセージ配列（role/content/imageUrl(任意)/createdAt）</td></tr>
+<tr><td>createdAt</td><td>会話作成日時</td></tr>
+<tr><td>updatedAt</td><td>最終更新日時（履歴一覧のソートキー）</td></tr>
+</table>
+
+<div class="box">
+特徴：FavoritesテーブルとPK/SK構成が同じ「ユーザー単位で複数レコード」設計。1会話=1アイテムとして
+messages配列をまるごと保持する（メッセージ単位でアイテムを分割しない、個人利用規模を前提にした簡略化）。
+</div>
+
+---
+
 <h2>6. Usersテーブル</h2>
 
 <div class="box">

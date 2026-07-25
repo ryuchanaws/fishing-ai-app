@@ -40,6 +40,7 @@ Globals:
         RECOMMENDATIONS_TABLE: !Ref RecommendationsTable
         FAVORITES_TABLE: !Ref FavoritesTable
         POSTS_TABLE: !Ref PostsTable
+        CHATS_TABLE: !Ref ChatsTable
         # ユーザー投稿・スポット写真のアップロード先バケット名
         UPLOADS_BUCKET: !Ref UploadsBucket
         # Gemini API キーを SSM パラメータストアから動的に取得
@@ -108,6 +109,20 @@ Resources:
         - { AttributeName: postId, AttributeType: S }  # PK: 投稿ID（文字列）
       KeySchema:
         - { AttributeName: postId, KeyType: HASH }
+
+  # AIチャットの会話履歴を保存するテーブル（1会話=1アイテム、messagesを配列で保持）
+  # userId（PK）+ chatId（SK）の複合キーで、FavoritesTableと同じ「ユーザー単位で複数レコード」設計
+  ChatsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-chats
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }
+        - { AttributeName: chatId, AttributeType: S }
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }
+        - { AttributeName: chatId, KeyType: RANGE }
 
   # ==============================================================
   # S3 バケット（スポット写真・投稿写真のアップロード先）
@@ -292,6 +307,60 @@ Resources:
           Properties:
             Path: /uploads/presign
             Method: POST
+
+  # POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）
+  # 写真添付時はGeminiへマルチモーダル入力として渡すため、S3読み取り権限も付与
+  # Timeoutは API Gateway の29秒上限より短く設定し、超過時もLambda側が先にエラーを返せるようにする
+  PostChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: postChatHandler
+      Handler: handlers.postChatHandler
+      CodeUri: ../backend/lambda/api/
+      Timeout: 25
+      Policies:
+        - SSMParameterReadPolicy:
+            ParameterName: fishing-ai/gemini-api-key
+        - S3ReadPolicy: { BucketName: !Ref UploadsBucket }
+        - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /chat
+            Method: POST
+
+  # GET /chats — チャット履歴一覧（軽量: chatId/title/updatedAtのみ）を返す
+  GetChatsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getChatsHandler
+      Handler: handlers.getChatsHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref ChatsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /chats
+            Method: GET
+
+  # GET /chats/{chatId} — 特定チャットの全メッセージを返す（履歴から再開する際に使用）
+  GetChatFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getChatHandler
+      Handler: handlers.getChatHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref ChatsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /chats/{chatId}
+            Method: GET
 
   # ==============================================================
   # Lambda 関数定義（バッチ系）

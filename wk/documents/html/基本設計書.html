@@ -210,7 +210,17 @@ score 自体はAIを介さないルールベース計算に統一している。
 <tr><td>createPost【2026-07-24 追加】</td><td>釣果投稿の作成</td></tr>
 <tr><td>updateSpotImage【2026-07-24 追加】</td><td>スポット写真URLの設定</td></tr>
 <tr><td>presignUpload【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td></tr>
+<tr><td>postChat【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信（Gemini マルチモーダル呼び出し、同期応答）</td></tr>
+<tr><td>getChats【2026-07-25 追加】</td><td>チャット履歴一覧取得（軽量版）</td></tr>
+<tr><td>getChat【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td></tr>
 </table>
+
+<div class="box">
+【2026-07-25 追記】postChat は他のAI機能（generateSpotScoreBatch等）と異なり非同期トリガー+ポーリング方式を
+採らず、API Gatewayへ同期的に応答を返す。チャットのUXにはポーリングが適さないため。
+Gemini呼び出し（テキスト+画像1枚）は通常数秒〜十数秒で収まる想定のため、Lambda Timeoutを
+API Gatewayの29秒上限より短い25秒に設定し、超過時もLambda側が先にエラーを返せるようにしている。
+</div>
 
 ---
 
@@ -287,6 +297,21 @@ createdAt
 <div class="box">
 PKは postId 単一キー（要件定義ドラフトの spotId(PK)+createdAt(SK) 複合キー案とは異なる。
 詳細はDEテーブル設計.html参照）。
+</div>
+
+<h3>Chats【2026-07-25 実装】</h3>
+<pre>
+userId (PK, 固定値 "user-001")
+chatId (SK)
+title
+messages（配列。role/content/imageUrl(任意)/createdAtを持つオブジェクトのリスト）
+createdAt
+updatedAt
+</pre>
+<div class="box">
+1会話=1アイテムとして messages を配列でまるごと保持する設計（個人利用規模を前提にシンプルさを優先。
+FavoritesTableと同じ userId(PK)+SK の構成）。会話が長くなるほどアイテムサイズが増える点は
+将来的な検討事項（DynamoDBの1アイテム上限400KB）。
 </div>
 
 ---

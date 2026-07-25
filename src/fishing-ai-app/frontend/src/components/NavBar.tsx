@@ -7,7 +7,7 @@
  */
 
 import { NavLink } from "react-router-dom";
-import { Home, Map, Heart, LayoutGrid, Camera } from "lucide-react";
+import { Home, Map, Heart, LayoutGrid, Camera, MessageCircle } from "lucide-react";
 
 /**
  * グローバルナビゲーションバーコンポーネント。
@@ -56,6 +56,12 @@ export const NavBar = () => (
       <NavLink to="/posts" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
         <Camera size={18} />
         <span>釣果</span>
+      </NavLink>
+
+      {/* AIチャットページ */}
+      <NavLink to="/chat" className={({ isActive }) => `nav-link ${isActive ? "active" : ""}`}>
+        <MessageCircle size={18} />
+        <span>AI相談</span>
       </NavLink>
     </div>
   </nav>

@@ -4,7 +4,16 @@
  */
 
 import axios from "axios";
-import type { Recommendation, Spot, Post, Favorite, BatchStatus, UploadPresignResponse } from "../types";
+import type {
+  Recommendation,
+  Spot,
+  Post,
+  Favorite,
+  BatchStatus,
+  UploadPresignResponse,
+  Chat,
+  ChatSummary,
+} from "../types";
 
 /**
  * API Gateway のベースURL。
@@ -181,4 +190,47 @@ export const uploadImageToS3 = async (uploadUrl: string, file: File): Promise<vo
   if (!res.ok) {
     throw new Error(`Image upload failed: ${res.status}`);
   }
+};
+
+/**
+ * AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）。
+ *
+ * バッチ処理と違い応答を同期的に待つ必要があるため、共有axiosインスタンスの
+ * デフォルトタイムアウト(10秒)より長い28秒を明示的に指定する
+ * （バックエンドのLambda Timeoutが25秒のため、それより少し長く設定）。
+ *
+ * @param {object} input
+ * @param {string} [input.chatId] - 既存チャットへの追記の場合に指定（省略時は新規チャット作成）
+ * @param {string} input.message - 送信するメッセージ本文
+ * @param {string} [input.imageUrl] - 添付画像のURL（uploadImageToS3完了後のpublicUrlを渡す）
+ * @returns {Promise<{chatId: string; reply: string; updatedAt: string}>} AIの応答
+ */
+export const sendChatMessage = async (input: {
+  chatId?: string;
+  message: string;
+  imageUrl?: string;
+}): Promise<{ chatId: string; reply: string; updatedAt: string }> => {
+  const { data } = await api.post("/chat", input, { timeout: 28000 });
+  return data;
+};
+
+/**
+ * チャット履歴一覧を新しい順で取得する（messagesを含まない軽量版）。
+ *
+ * @returns {Promise<ChatSummary[]>} チャット履歴一覧
+ */
+export const getChatHistory = async (): Promise<ChatSummary[]> => {
+  const { data } = await api.get("/chats");
+  return data.items ?? data;
+};
+
+/**
+ * 特定チャットの全メッセージを取得する。
+ *
+ * @param {string} chatId - 対象チャットID
+ * @returns {Promise<Chat>} チャットの全メッセージを含むデータ
+ */
+export const getChat = async (chatId: string): Promise<Chat> => {
+  const { data } = await api.get(`/chats/${chatId}`);
+  return data;
 };
