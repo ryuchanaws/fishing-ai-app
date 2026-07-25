@@ -172,21 +172,41 @@ export const getPresignedUploadUrl = async (contentType: string): Promise<Upload
 };
 
 /**
- * 発行された署名付きURLへ画像ファイルを直接アップロードする。
+ * アップロード可能な画像の最大サイズ（バイト）。
+ * バックエンド（handlers.py の MAX_UPLOAD_BYTES）と同じ値を保つこと。
+ * ここでのチェックはUX向上のための早期エラー表示用で、実際の強制はS3側の
+ * content-length-range 条件（署名に埋め込み済み）が行う。
+ */
+export const MAX_UPLOAD_BYTES = 8 * 1024 * 1024; // 8MB
+
+/**
+ * 発行された署名付きフォームへ画像ファイルを直接アップロードする。
  *
  * API Gatewayのペイロードサイズ制限を避けるため、Lambdaを経由せず
- * S3へ直接PUTする（共有axiosインスタンスは使わない。別ホストのため）。
+ * S3へ直接POSTする（共有axiosインスタンスは使わない。別ホストのため）。
+ * 2026-07-25: 単純なPUTから署名付きPOSTフォームに変更し、アップロード
+ * サイズ上限をS3側に強制させるようにした（uploadFieldsにcontent-length-range条件が含まれる）。
  *
- * @param {string} uploadUrl - getPresignedUploadUrl で取得した署名付きPUT URL
+ * @param {string} uploadUrl - getPresignedUploadUrl で取得した署名付きPOST先URL
+ * @param {Record<string, string>} uploadFields - 同レスポンスの署名付きフォームフィールド
  * @param {File} file - アップロードする画像ファイル
  * @returns {Promise<void>}
  */
-export const uploadImageToS3 = async (uploadUrl: string, file: File): Promise<void> => {
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": file.type },
-  });
+export const uploadImageToS3 = async (
+  uploadUrl: string,
+  uploadFields: Record<string, string>,
+  file: File
+): Promise<void> => {
+  if (file.size > MAX_UPLOAD_BYTES) {
+    throw new Error(`画像サイズが大きすぎます（上限${MAX_UPLOAD_BYTES / 1024 / 1024}MB）`);
+  }
+
+  const formData = new FormData();
+  Object.entries(uploadFields).forEach(([key, value]) => formData.append(key, value));
+  // "file" フィールドはS3の仕様上フォームの最後に追加する必要がある
+  formData.append("file", file);
+
+  const res = await fetch(uploadUrl, { method: "POST", body: formData });
   if (!res.ok) {
     throw new Error(`Image upload failed: ${res.status}`);
   }

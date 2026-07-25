@@ -187,6 +187,17 @@ git push origin main
    - 応答は同期的に返るため他のAI機能と違いポーリングはしない。Gemini呼び出しがLambdaの25秒
      タイムアウトを超えた場合はエラーメッセージが表示される
 
+8. **PWA化（ホーム画面への追加、2026-07-25追加）**
+   - スマホのブラウザ（Chrome/Safari等）で本番URLを開き、「ホーム画面に追加」/「アプリをインストール」を実行する
+   - アイコン・アプリ名（つり羅針盤）が正しく表示され、起動時にブラウザのアドレスバー無しで開けば成功
+   - `vite-plugin-pwa` がビルド時に `manifest.webmanifest` と Service Worker（`sw.js`）を自動生成している
+
+9. **アップロードサイズ上限（2026-07-25追加）**
+   - スポット写真・投稿写真・チャット添付画像、いずれも8MBを超えるファイルはアップロードできない
+   - 上限はS3の署名付きPOSTフォームの `content-length-range` 条件で強制されており、
+     フロント側のチェック（`api/client.ts` の `MAX_UPLOAD_BYTES`）をバイパスしても拒否される
+   - 大きすぎるファイルを選んだ場合、送信/アップロード時にエラーメッセージが表示される
+
 ---
 
 ## トラブルシューティング
@@ -203,6 +214,8 @@ git push origin main
 | 投稿が反映されない | `POST /posts` の失敗、または一覧の再取得漏れ | ブラウザの開発者ツールでAPIレスポンスを確認。ページ再読み込みで反映されるか確認 |
 | AI相談が「回答の生成に失敗しました」を返す | Gemini API呼び出しがエラー、または `PostChatFunction` の25秒Timeoutを超過 | CloudWatch Logs の `postChatHandler` で `Gemini chat error` を確認。画像添付時は特に時間がかかりやすい |
 | AI相談でカメラが起動しない | ブラウザ/OSがcapture属性に対応していない、またはHTTPS配信でない | 本番URL（CloudFront/Cloudflare、どちらもHTTPS）でアクセスしているか確認。非対応環境では自動的に通常のファイル選択にフォールバックする |
+| 「ホーム画面に追加」が出てこない | HTTPS配信でない、またはmanifest/Service Workerが読み込めていない | 本番URLでアクセスしているか確認。ブラウザの開発者ツール→Application タブで `manifest.webmanifest` と `sw.js` が正しく読めているか確認 |
+| 画像アップロードで「画像サイズが大きすぎます」と出る | ファイルが8MB（`MAX_UPLOAD_BYTES`）を超えている | 写真を圧縮するか小さいサイズで撮り直す。上限値自体を変える場合は `handlers.py` の `MAX_UPLOAD_BYTES` と `api/client.ts` の `MAX_UPLOAD_BYTES` を両方変更すること |
 
 ---
 

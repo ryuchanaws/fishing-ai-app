@@ -46,6 +46,8 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
   const [imageUrl, setImageUrl] = useState(rec.spot?.imageUrl);
   /** アップロード中フラグ */
   const [uploading, setUploading] = useState(false);
+  /** アップロード失敗時のエラーメッセージ（サイズ超過など） */
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -58,7 +60,7 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
 
   /**
    * 選択された画像ファイルをS3へアップロードし、スポットの写真として設定する。
-   * 署名付きURL発行 → S3へ直接PUT → Spotsテーブルのimageurlを更新、の順に行う。
+   * 署名付きフォーム発行 → S3へ直接POST → Spotsテーブルのimageurlを更新、の順に行う。
    *
    * @param {React.ChangeEvent<HTMLInputElement>} e - ファイル選択イベント
    */
@@ -67,13 +69,14 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
     if (!file) return;
 
     setUploading(true);
+    setUploadError(null);
     try {
-      const { uploadUrl, publicUrl } = await getPresignedUploadUrl(file.type);
-      await uploadImageToS3(uploadUrl, file);
+      const { uploadUrl, uploadFields, publicUrl } = await getPresignedUploadUrl(file.type);
+      await uploadImageToS3(uploadUrl, uploadFields, file);
       await updateSpotImage(rec.spotId, publicUrl);
       setImageUrl(publicUrl);
-    } catch {
-      // アップロード失敗時は静かに諦める（UI上の写真は変更しない）
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "アップロードに失敗しました");
     } finally {
       setUploading(false);
       e.target.value = "";
@@ -183,6 +186,8 @@ export const DetailModal = ({ recommendation: rec, isFavorite, onClose, onToggle
             このスポットの投稿を見る
           </Link>
         </div>
+
+        {uploadError && <div className="error-banner">{uploadError}</div>}
       </div>
     </div>
   );

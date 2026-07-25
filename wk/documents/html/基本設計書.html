@@ -33,9 +33,15 @@ th { background:#eef3f8; }
 <ul>
 <li>釣り場検索ではなく「釣行意思決定AI」</li>
 <li>ユーザーが最短で「どこで何を釣るか」を決定できる</li>
-<li>PWA（スマホ・PC対応）</li>
+<li>PWA（スマホ・PC対応）【2026-07-25 実装】</li>
 <li>個人〜少人数利用前提</li>
 </ul>
+
+<div class="box">
+【2026-07-25 実装】長らく未着手だったPWA対応を実施。`vite-plugin-pwa` を導入し、
+ビルド時に manifest.webmanifest と Service Worker（Workboxによるプリキャッシュ）を自動生成する構成にした。
+アイコンはPillowで生成した簡易的な魚シルエット画像（192/512px、マスカブル対応版含む）を使用。
+</div>
 
 ---
 
@@ -209,7 +215,7 @@ score 自体はAIを介さないルールベース計算に統一している。
 <tr><td>createFavorite</td><td>お気に入り登録</td></tr>
 <tr><td>createPost【2026-07-24 追加】</td><td>釣果投稿の作成</td></tr>
 <tr><td>updateSpotImage【2026-07-24 追加】</td><td>スポット写真URLの設定</td></tr>
-<tr><td>presignUpload【2026-07-24 追加】</td><td>S3アップロード用の署名付きURL発行</td></tr>
+<tr><td>presignUpload【2026-07-24 追加、2026-07-25 方式変更】</td><td>S3アップロード用の署名付きPOSTフォーム発行（アップロード上限8MBを強制）</td></tr>
 <tr><td>postChat【2026-07-25 追加】</td><td>AIチャットへのメッセージ送信（Gemini マルチモーダル呼び出し、同期応答）</td></tr>
 <tr><td>getChats【2026-07-25 追加】</td><td>チャット履歴一覧取得（軽量版）</td></tr>
 <tr><td>getChat【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td></tr>
@@ -220,6 +226,13 @@ score 自体はAIを介さないルールベース計算に統一している。
 採らず、API Gatewayへ同期的に応答を返す。チャットのUXにはポーリングが適さないため。
 Gemini呼び出し（テキスト+画像1枚）は通常数秒〜十数秒で収まる想定のため、Lambda Timeoutを
 API Gatewayの29秒上限より短い25秒に設定し、超過時もLambda側が先にエラーを返せるようにしている。
+</div>
+
+<div class="box">
+【2026-07-25 実装】presignUpload は当初 `generate_presigned_url("put_object")` による単純な署名付きPUT URLだったが、
+これはURL自体にサイズ制限を埋め込めず、悪意あるクライアントが任意サイズをアップロードできてしまう欠陥があった。
+`generate_presigned_post` による署名付きPOSTフォーム（`content-length-range` 条件で1バイト〜8MBに制限）に変更し、
+S3側でアップロード上限を強制するようにした。フロントの `uploadImageToS3` もPUTからmultipart/form-data POSTに変更している。
 </div>
 
 ---

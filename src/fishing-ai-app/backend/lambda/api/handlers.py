@@ -70,6 +70,11 @@ ALLOWED_CONTENT_TYPES = {
     "image/webp": "webp",
 }
 
+# アップロード可能な画像の最大サイズ（バイト）。generate_presigned_post の
+# content-length-range 条件でS3側に強制させる。フロント側（api/client.ts）にも
+# 同じ値を定義しており、アップロード試行前の早期エラー表示に使っている
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
+
 # ─────────────────────────────
 # SSM（Gemini APIキー。postChatHandlerのAIチャット応答生成に使用）
 # ─────────────────────────────
@@ -473,12 +478,18 @@ def putSpotImageHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 # ─────────────────────────────
 @handler_guard
 def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """POST /uploads/presign — S3への直接アップロード用の署名付きURLを発行する。
+    """POST /uploads/presign — S3への直接アップロード用の署名付きPOSTフォームを発行する。
 
-    フロントエンドはこのAPIで受け取った uploadUrl に対して画像バイナリを
-    直接 PUT する（Lambda/API Gatewayを経由させないことでペイロードサイズ
-    制限を回避する）。アップロード完了後は publicUrl を
-    Post.imageUrl / Spot.imageUrl として保存する。
+    フロントエンドはこのAPIで受け取った uploadUrl + uploadFields を使って
+    multipart/form-data のPOSTでS3へ直接アップロードする
+    （Lambda/API Gatewayを経由させないことでペイロードサイズ制限を回避する）。
+    アップロード完了後は publicUrl を Post.imageUrl / Spot.imageUrl として保存する。
+
+    2026-07-25: 単純な署名付きPUT URL（generate_presigned_url）から
+    署名付きPOSTフォーム（generate_presigned_post）に変更した。PUT URLはURL自体に
+    サイズ制限を埋め込めず、悪意あるクライアントが任意サイズをアップロードできてしまう。
+    POSTフォームは Conditions に content-length-range を指定でき、S3側がその条件を
+    満たさないアップロードを拒否するため、アップロード上限をサーバー側で強制できる。
 
     Args:
         event (dict[str, Any]): API Gateway イベントオブジェクト
@@ -487,7 +498,7 @@ def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, A
 
     Returns:
         dict[str, Any]:
-            成功時 200: {"uploadUrl": str, "publicUrl": str}
+            成功時 200: {"uploadUrl": str, "uploadFields": dict, "publicUrl": str}
             未対応の画像形式時 400: {"error": "..."}
     """
     body = json.loads(event.get("body") or "{}")
@@ -499,14 +510,24 @@ def postPresignUploadHandler(event: dict[str, Any], context: Any) -> dict[str, A
 
     key = f"uploads/{uuid.uuid4()}.{ext}"
 
-    upload_url = s3.generate_presigned_url(
-        "put_object",
-        Params={"Bucket": UPLOADS_BUCKET, "Key": key, "ContentType": content_type},
+    presigned = s3.generate_presigned_post(
+        Bucket=UPLOADS_BUCKET,
+        Key=key,
+        Fields={"Content-Type": content_type},
+        Conditions=[
+            {"Content-Type": content_type},
+            # 1バイト〜MAX_UPLOAD_BYTES の範囲外はS3側が413相当のエラーで拒否する
+            ["content-length-range", 1, MAX_UPLOAD_BYTES],
+        ],
         ExpiresIn=PRESIGNED_URL_EXPIRES_SEC,
     )
     public_url = f"https://{UPLOADS_BUCKET}.s3.{os.environ.get('AWS_REGION', 'ap-northeast-1')}.amazonaws.com/{key}"
 
-    return _resp(200, {"uploadUrl": upload_url, "publicUrl": public_url})
+    return _resp(200, {
+        "uploadUrl": presigned["url"],
+        "uploadFields": presigned["fields"],
+        "publicUrl": public_url,
+    })
 
 
 # ─────────────────────────────

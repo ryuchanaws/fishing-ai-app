@@ -134,9 +134,10 @@ Resources:
       BucketName: !Sub "fishing-ai-app-uploads-${AWS::AccountId}"
       CorsConfiguration:
         CorsRules:
-          # フロントの本番/開発オリジンいずれからも署名付きURLへPUTできるよう許可
+          # フロントの本番/開発オリジンいずれからも署名付きURLへアップロードできるよう許可
+          # POST: 2026-07-25、署名付きPUT URLから署名付きPOSTフォーム（アップロード上限強制のため）に変更した際に追加
           - AllowedOrigins: ["*"]
-            AllowedMethods: [GET, PUT]
+            AllowedMethods: [GET, PUT, POST]
             AllowedHeaders: ["*"]
       PublicAccessBlockConfiguration:
         BlockPublicAcls: true
