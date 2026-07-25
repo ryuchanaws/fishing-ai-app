@@ -7,6 +7,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
+  // Playwrightのデフォルトレポーターはhtmlを自動生成しない（CIでは'dot'のみ）ため、
+  // 明示的にhtmlレポーターを有効化する。VRT失敗時の実際のスクリーンショットを
+  // CIのアーティファクトとして取得できるようにするため（README「テスト」セクション参照）
+  reporter: [["list"], ["html", { open: "never" }]],
   // ビルド済みの静的ファイルをプレビューサーバーで配信し、そこに対してテストする
   webServer: {
     command: "npm run preview -- --port 4173",
