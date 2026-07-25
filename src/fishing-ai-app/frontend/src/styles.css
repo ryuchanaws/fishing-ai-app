@@ -1178,6 +1178,127 @@ body  {
   flex-shrink: 0;
 }
 
+/* ===== GUIDE ===== */
+.guide-section  {
+  padding: 24px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.guide-section-head  {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 6px;
+}
+
+.guide-num  {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 0.04em;
+}
+
+.guide-heading  {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.guide-desc  {
+  color: var(--text2);
+  font-size: 13.5px;
+  margin: 6px 0 16px;
+  max-width: 60ch;
+}
+
+.guide-feature-list  {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guide-feature  {
+  display: flex;
+  gap: 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.guide-feature-mark  {
+  flex: 0 0 auto;
+  width: 4px;
+  border-radius: 4px;
+  background: var(--accent);
+  opacity: 0.6;
+}
+
+.guide-feature b  {
+  display: block;
+  font-size: 13.5px;
+  margin-bottom: 3px;
+}
+
+.guide-feature span  {
+  font-size: 12.5px;
+  color: var(--text2);
+  line-height: 1.6;
+}
+
+.guide-install-grid  {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.guide-install-card  {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+
+.guide-install-card h3  {
+  font-size: 13px;
+  color: var(--accent);
+  margin: 0 0 8px;
+}
+
+.guide-install-card ol  {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12.5px;
+  color: var(--text2);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.guide-faq-item  {
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+}
+.guide-faq-item:last-child  {
+  border-bottom: none;
+}
+
+.guide-faq-q  {
+  font-weight: 700;
+  font-size: 13.5px;
+  margin: 0 0 6px;
+}
+
+.guide-faq-a  {
+  font-size: 12.5px;
+  color: var(--text2);
+  margin: 0;
+  line-height: 1.7;
+}
+
 /* ===== UTILITIES ===== */
 /* アイコンボタン: ナビ・更新など汎用の正方形ボタン */
 .icon-btn  {
