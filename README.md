@@ -66,6 +66,8 @@ GitHub Actions のワークフローから AWS や外部サービスに安全に
 | `CLOUDFRONT_DISTRIBUTION_ID` | CloudFront ディストリビューション ID | AWS CloudFront コンソール |
 | `VITE_API_BASE_URL` | API Gateway のエンドポイント URL | SAM デプロイ後の出力値 |
 | `VITE_GOOGLE_MAPS_KEY` | Google Maps API キー | Google Cloud Console |
+| `CLOUDFLARE_API_TOKEN`【2026-07-24追加】 | Cloudflare Workers へのデプロイ権限を持つ API トークン | Cloudflareダッシュボード → プロフィール → API Tokens →「Edit Cloudflare Workers」テンプレート |
+| `CLOUDFLARE_ACCOUNT_ID`【2026-07-24追加】 | Cloudflare アカウントID | Cloudflareダッシュボード（トークン発行時にも表示される） |
 
 > **補足:** スポット写真・投稿写真のアップロード先S3バケット（`fishing-ai-app-uploads-<アカウントID>`）は
 > ここでは扱わない。こちらは `template.yaml` の `UploadsBucket` としてSAM/CloudFormationで自動作成されるため、
@@ -193,13 +195,16 @@ git push origin main
 
 ---
 
-## 7. デプロイ先（2026-07-23 時点）
+## 7. デプロイ先（2026-07-24 時点）
 
 フロントエンドは2系統に並行デプロイしている。バックエンド（API Gateway/Lambda/DynamoDB）はAWS側1本のみで共通。
 
 | デプロイ先 | URL | デプロイ方法 |
 |---|---|---|
 | AWS（CloudFront） | https://d2ny5ej5kn6jzs.cloudfront.net/ | `main` ブランチへの push で GitHub Actions が自動デプロイ |
-| Cloudflare Pages | https://ryu-chan-fish.ryuchan-aws.workers.dev/ | `frontend` で `npm run build` の後 `npx wrangler pages deploy dist --project-name ryu-chan-fish`（手動デプロイ、CI化はしていない） |
+| Cloudflare Workers | https://ryu-chan-fish.ryuchan-aws.workers.dev/ | **2026-07-24〜自動化**: `main` ブランチへの push で GitHub Actions（`deploy-frontend` ジョブ内の `Deploy to Cloudflare Workers` ステップ）が同じビルド成果物を `npx wrangler deploy` する |
 
-> 独自ドメイン（有料）は未取得。無料で使える見た目のURLとして Cloudflare Pages の `*.workers.dev` サブドメインを利用している。
+> 独自ドメイン（有料）は未取得。無料で使える見た目のURLとして Cloudflare Workers の `*.workers.dev` サブドメインを利用している。
+>
+> Cloudflare側の自動デプロイには GitHub Secrets `CLOUDFLARE_API_TOKEN`（Cloudflareダッシュボード → プロフィール → API Tokens →
+> 「Edit Cloudflare Workers」テンプレートで発行）と `CLOUDFLARE_ACCOUNT_ID` の登録が必要。

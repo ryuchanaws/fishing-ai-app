@@ -145,3 +145,15 @@ jobs:
           aws cloudfront create-invalidation \
             --distribution-id ${{ env.CLOUDFRONT_ID }} \
             --paths "/*"
+
+      # Cloudflare Workers（ryu-chan-fish）にも同じビルド成果物をデプロイする
+      # 2026-07-24追加: 以前は npm run build && npx wrangler deploy を手動実行していたが、
+      # AWS側と同じ push で自動更新されるようにした。
+      # wrangler は package.json の devDependencies に含まれているため npx で追加インストール不要。
+      # CLOUDFLARE_ACCOUNT_ID はアカウントが複数ある場合に対象を一意にするため設定（Secrets管理）。
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
+        working-directory: src/fishing-ai-app/frontend
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
