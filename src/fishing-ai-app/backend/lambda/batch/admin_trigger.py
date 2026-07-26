@@ -18,7 +18,7 @@ generateSpotScoreBatch Lambda を非同期に invoke してすぐに応答を返
 Note:
     以前は InvocationType="RequestResponse" で同期呼び出しし、
     バッチ完了まで待ってから結果を返していた。しかし API Gateway
-    (REST API) の統合タイムアウトは 29 秒が上限で、Gemini API 呼び出しを
+    (REST API) の統合タイムアウトは 29 秒が上限で、Claude API 呼び出しを
     含むバッチ処理（5スポット分）はこれを超えることがあり、Lambda自体は
     成功しているのに API Gateway 側が 504 Timeout を返す問題があった。
     非同期呼び出しに変更し即座に応答することでこの問題を回避している。
@@ -27,7 +27,7 @@ Requirements:
     - 環境変数 BATCH_FUNCTION_NAME に呼び出し先 Lambda 名が設定済みであること
     - Lambda 実行ロールに対象 Lambda の invoke 権限があること
 
-2026-07-26追加: このLambdaはPlaces/Gemini APIを呼ぶバッチ処理を起動するため、
+2026-07-26追加: このLambdaはPlaces/Claude APIを呼ぶバッチ処理を起動するため、
 コスト保護のため1ユーザー1日あたりの起動回数に上限を設けている（handlers.pyの
 postChatHandlerと同じ思想）。admin_trigger.pyはAI分析実行・現在地から探すの
 両方で共用されているため、環境変数 RATE_LIMIT_ACTION / RATE_LIMIT_DAILY で
@@ -96,7 +96,7 @@ def handler(event, context):
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
-    # Places/Gemini API呼び出しを伴うバッチのコスト保護（2026-07-26追加）
+    # Places/Claude API呼び出しを伴うバッチのコスト保護（2026-07-26追加）
     user_id = get_user_id(event)
     if not check_and_increment_daily_usage(user_id, RATE_LIMIT_ACTION, RATE_LIMIT_DAILY):
         return {

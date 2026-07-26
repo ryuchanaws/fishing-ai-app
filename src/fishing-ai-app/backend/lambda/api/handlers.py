@@ -37,8 +37,10 @@ from datetime import datetime, timezone
 from typing import Any, Callable
 from urllib.parse import urlparse
 
+import base64
+
 import boto3
-import google.generativeai as genai
+import anthropic
 from boto3.dynamodb.conditions import Key
 from botocore.exceptions import ClientError
 
@@ -85,19 +87,22 @@ ALLOWED_CONTENT_TYPES = {
 MAX_UPLOAD_BYTES = 8 * 1024 * 1024  # 8MB
 
 # ─────────────────────────────
-# SSM（Gemini APIキー。postChatHandlerのAIチャット応答生成に使用）
+# SSM（Anthropic APIキー。postChatHandlerのAIチャット応答生成に使用）
 # ─────────────────────────────
 ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
 # "/"を含む階層型のSSMパラメータ名は先頭スラッシュ必須（AWSの仕様。generate_score.pyと同じ注意点）
-GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
+ANTHROPIC_API_KEY_PARAM = "/fishing-ai/anthropic-api-key"
 
-# 直近何往復分の会話をGeminiに渡すか（トークン量とレイテンシを抑えるための上限）
+# Claude Haiku（低コスト・高速なモデル）を使用。詳細設計.html参照
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+
+# 直近何往復分の会話をClaudeに渡すか（トークン量とレイテンシを抑えるための上限）
 CHAT_HISTORY_LIMIT = 10
 # Cognito未対応のエンドポイント・オーソライザーを未通過のリクエスト向けフォールバック
 # （2026-07-26時点では認証必須エンドポイントは全てCognitoAuthorizerを通るため実質使われない）
 DEFAULT_USER_ID = "user-001"
 
-# 1ユーザーが1日に送れるAIチャットメッセージ数の上限。Gemini呼び出しコストを抑えるための
+# 1ユーザーが1日に送れるAIチャットメッセージ数の上限。Claude呼び出しコストを抑えるための
 # 簡易レート制限（2026-07-26追加。友人にアプリを共有したことで複数人が使うようになったため）
 DAILY_CHAT_LIMIT = 30
 
@@ -711,10 +716,10 @@ def _check_and_increment_daily_usage(user_id: str, action: str, limit: int) -> b
 # ─────────────────────────────
 # AIチャット共通ヘルパー
 # ─────────────────────────────
-def _get_gemini_api_key() -> str:
-    """SSM Parameter StoreからGemini APIキーを取得する（generate_score.pyと同じパターン）。"""
+def _get_anthropic_api_key() -> str:
+    """SSM Parameter StoreからAnthropic APIキーを取得する（generate_score.pyと同じパターン）。"""
     try:
-        response = ssm.get_parameter(Name=GEMINI_API_KEY_PARAM, WithDecryption=True)
+        response = ssm.get_parameter(Name=ANTHROPIC_API_KEY_PARAM, WithDecryption=True)
         return response["Parameter"]["Value"]
     except ClientError as e:
         print(f"SSM get_parameter error: {e}")
@@ -749,7 +754,7 @@ def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     return 2 * r * math.asin(math.sqrt(a))
 
 
-# チャットのプロンプトに埋め込むスポット数の上限。スポットが増えてもGemini呼び出しの
+# チャットのプロンプトに埋め込むスポット数の上限。スポットが増えてもClaude呼び出しの
 # トークン量（＝コスト）が際限なく増えないようにするための上限（2026-07-26追加）
 SPOTS_CONTEXT_LIMIT = 40
 
@@ -757,9 +762,9 @@ SPOTS_CONTEXT_LIMIT = 40
 def _build_spots_context(user_lat: float | None = None, user_lng: float | None = None) -> str:
     """AI相談のプロンプトに埋め込む、実際のSpots/Recommendationsデータのコンパクトな要約を作る。
 
-    discover_spots.pyが「座標などの実在情報はPlaces APIのみを採用しGeminiに生成させない」
+    discover_spots.pyが「座標などの実在情報はPlaces APIのみを採用しClaudeに生成させない」
     という方針を取っているのと同じ考え方で、チャットについても実データをそのまま渡すことで
-    Geminiが存在しない釣り場を作り出す（ハルシネーション）のを防ぐ（2026-07-26追加）。
+    Claudeが存在しない釣り場を作り出す（ハルシネーション）のを防ぐ（2026-07-26追加）。
 
     Args:
         user_lat (float | None): ユーザーの現在地の緯度（省略可）
@@ -810,7 +815,7 @@ def _build_spots_context(user_lat: float | None = None, user_lng: float | None =
 def _generate_chat_reply(
     history: list[dict[str, Any]], message: str, image_url: str | None, spots_context: str = ""
 ) -> str:
-    """Gemini APIを使ってチャット応答を生成する（テキスト、または画像+テキストのマルチモーダル）。
+    """Claude APIを使ってチャット応答を生成する（テキスト、または画像+テキストのマルチモーダル）。
 
     APIキー未設定時・エラー時はフォールバック文言を返し、Lambdaを継続させる
     （generate_score.py の generate_reason() と同じ思想）。
@@ -825,12 +830,12 @@ def _generate_chat_reply(
     Returns:
         str: AIの応答テキスト
     """
-    api_key = _get_gemini_api_key()
+    api_key = _get_anthropic_api_key()
     if not api_key:
         return "現在AI機能を利用できません（APIキー未設定）。しばらくしてからお試しください。"
 
     try:
-        genai.configure(api_key=api_key)
+        client = anthropic.Anthropic(api_key=api_key)
         system_instruction = (
             "あなたは釣行AIアプリに組み込まれた釣りの専門家アシスタントです。"
             "魚種の判定、エサ・仕掛けの適否、釣果へのコメントなど、釣りに関する質問に"
@@ -845,27 +850,40 @@ def _generate_chat_reply(
                 "該当する場所がデータに無い場合は正直にその旨を伝え、存在しない場所を作り出さないでください。\n"
                 f"{spots_context}"
             )
-        model = genai.GenerativeModel("gemini-flash-latest", system_instruction=system_instruction)
 
-        # 直近の履歴をGeminiのchat形式（role: user/model）に変換
-        chat_history = [
-            {"role": "user" if h["role"] == "user" else "model", "parts": [h["content"]]}
+        # 直近の履歴をClaudeのmessages形式に変換。DynamoDBの保存形式が既に
+        # role: "user"/"assistant" で交互に並んでいるため、そのままcontentのみ抜き出せばよい
+        # （imageUrl・createdAt等の余計なキーはAPIに送らないよう除外する）
+        messages: list[dict[str, Any]] = [
+            {"role": h["role"], "content": h["content"]}
             for h in history[-CHAT_HISTORY_LIMIT:]
         ]
-        chat = model.start_chat(history=chat_history)
 
-        parts: list[Any] = [message]
+        user_content: list[dict[str, Any]] = [{"type": "text", "text": message}]
         if image_url:
             fetched = _fetch_image_bytes(image_url)
             if fetched:
                 image_bytes, content_type = fetched
-                parts.append({"mime_type": content_type, "data": image_bytes})
+                user_content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": content_type,
+                        "data": base64.b64encode(image_bytes).decode("utf-8"),
+                    },
+                })
+        messages.append({"role": "user", "content": user_content})
 
-        response = chat.send_message(parts)
-        return response.text.strip()
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=800,
+            system=system_instruction,
+            messages=messages,
+        )
+        return response.content[0].text.strip()
 
     except Exception as e:
-        print(f"Gemini chat error: {e}")
+        print(f"Claude chat error: {e}")
         return "回答の生成に失敗しました。もう一度お試しください。"
 
 
@@ -877,7 +895,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）。
 
     chatId が未指定の場合は新規チャットを作成する。写真が添付されている場合は
-    Geminiへマルチモーダル入力として渡す。応答は同期的に返す
+    Claudeへマルチモーダル入力として渡す。応答は同期的に返す
     （バッチ処理と違い、チャットのUXにはポーリングが合わないため）。
 
     Args:
@@ -903,8 +921,8 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     user_id = _get_user_id(event)
 
-    # Gemini呼び出しコストを抑えるための1日あたりレート制限（2026-07-26追加）。
-    # 上限超過時はGeminiを呼ばずに即座に返す
+    # Claude呼び出しコストを抑えるための1日あたりレート制限（2026-07-26追加）。
+    # 上限超過時はClaudeを呼ばずに即座に返す
     if not _check_and_increment_daily_usage(user_id, "chat", DAILY_CHAT_LIMIT):
         return _resp(429, {
             "error": "rate_limited",

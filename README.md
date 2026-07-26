@@ -10,27 +10,31 @@
 
 ## 1. AWS SSM にシークレット登録
 
-Gemini API キーを AWS Systems Manager パラメータストアに安全に保存する。
+Claude API キー（Anthropic）を AWS Systems Manager パラメータストアに安全に保存する。
 Lambda の環境変数に直接書かずに SSM から取得することでセキュリティを高める。
-（AIコメント生成にのみ使用。天気・潮汐データは APIキー不要の Open-Meteo を使用しており、
+（AIコメント生成・AI相談チャットにのみ使用。天気・潮汐データは APIキー不要の Open-Meteo を使用しており、
 このシークレットは不要）
 
 ```bash
 aws ssm put-parameter \
-  --name /fishing-ai/gemini-api-key \
-  --value "AIzaxxxxxxxx" \
+  --name /fishing-ai/anthropic-api-key \
+  --value "sk-ant-xxxxxxxx" \
   --type SecureString
 ```
 
-> `AIzaxxxxxxxx` は実際の Gemini API キーに置き換えること。
-> Google AI Studio（https://aistudio.google.com/apikey）で取得できる。
+> `sk-ant-xxxxxxxx` は実際の Claude API キーに置き換えること。
+> Anthropic Console（https://console.anthropic.com/settings/keys）で取得できる。
+>
+> **2026-07-26: Gemini APIからClaude Haikuへ移行**。Gemini無料枠（20リクエスト/日/プロジェクト）が
+> スポット数の増加により1回の「AI分析を実行」で枯渇し、AI相談が失敗する障害が発生したため、
+> 回数制限の無いClaude API（従量課金・低単価のHaikuモデル）に切り替えた。
 >
 > **注意（2026-07-24 訂正）:** `aws ssm put-parameter`/`get-parameter` の `--name` に渡す
 > **実際のパラメータ名**は、`/`を含む階層型の場合は先頭にスラッシュが必須（AWSの仕様。
 > 付けないと `must be a fully qualified name` エラーになる）。上記コマンドは
-> `/fishing-ai/gemini-api-key`（先頭スラッシュあり）が正しい。<br>
+> `/fishing-ai/anthropic-api-key`（先頭スラッシュあり）が正しい。<br>
 > 一方、`template.yaml` の `SSMParameterReadPolicy.ParameterName` は**逆に先頭スラッシュを付けない**
-> （`fishing-ai/gemini-api-key`）のが正しい。SAM側が内部で `parameter/${ParameterName}` として
+> （`fishing-ai/anthropic-api-key`）のが正しい。SAM側が内部で `parameter/${ParameterName}` として
 > 自動でスラッシュを補ってARNを組み立てるため、ここで自分でも付けると `parameter//...` という
 > 二重スラッシュのARNになり実際のパラメータと一致せず AccessDenied になる（2026-07-23に実際に踏んだ不具合）。
 > この2つのフィールドで先頭スラッシュの要不要が逆になっている点に注意すること。
@@ -154,7 +158,7 @@ git push origin main
      実際の完了（DynamoDB更新）まではフロントエンドが `GET /recommendations` を
      数秒おきにポーリングして待つ。**2026-07-24時点**でこのバッチは
      (a) Google Places APIによる新規スポット探索（全国向け、位置指定なし）→
-     (b) 全スポットの天気・潮汐取得＋Gemini呼び出しによるスコア計算、の順に実行するため、
+     (b) 全スポットの天気・潮汐取得＋Claude呼び出しによるスコア計算、の順に実行するため、
      合計60〜90秒程度かかる（従来のスコア計算のみの30秒前後から伸びている）。
      90秒待っても完了を検知できない場合は「バックグラウンドで実行中の可能性があります」
      という中立的な表示になる（エラーではなく、裏側では継続している可能性がある状態）
@@ -188,10 +192,10 @@ git push origin main
 7. **AI相談（チャット、2026-07-25追加）**
    - ナビの「AI相談」タブから、魚種判定・エサの適否などをテキストで質問できる
    - 入力欄の画像アイコンから「アルバムから選択」、カメラアイコンから「その場で撮影」でき、
-     どちらも同じ送信フローに統合されている（撮影/選択→プレビュー→送信でGeminiに画像+テキストを渡す）
+     どちらも同じ送信フローに統合されている（撮影/選択→プレビュー→送信でClaudeに画像+テキストを渡す）
    - 会話はDynamoDB（fishing-chats）に保存される。「+」ボタンで新しい会話を開始（保存は次の送信時）、
      「履歴」ボタンで過去の会話一覧から再開できる
-   - 応答は同期的に返るため他のAI機能と違いポーリングはしない。Gemini呼び出しがLambdaの25秒
+   - 応答は同期的に返るため他のAI機能と違いポーリングはしない。Claude呼び出しがLambdaの25秒
      タイムアウトを超えた場合はエラーメッセージが表示される
 
 8. **PWA化（ホーム画面への追加、2026-07-25追加）**
@@ -222,7 +226,7 @@ git push origin main
     - 入力欄の現在地アイコンをONにすると、実際の距離を計算して「近い順」の案内ができるようになる（任意）
 
 13. **AI分析・新スポット探索・釣具店検索のコスト保護（2026-07-26追加）**
-    - Places/Gemini APIの呼び出しを伴うこれら3つの操作には、AI相談（DAILY_CHAT_LIMIT）と同じ仕組みで
+    - Places/Claude APIの呼び出しを伴うこれら3つの操作には、AI相談（DAILY_CHAT_LIMIT）と同じ仕組みで
       1ユーザー1日あたりの上限を設けている: AI分析3回・新スポット探索10回・釣具店検索20回
       （`UsageTable`に記録、翌々日にTTLで自動削除）
     - 上限に達した状態でボタンを押すと、429エラーとともに「本日の利用回数（n件）に達しました。
@@ -309,14 +313,14 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 | 症状 | 原因 | 対処 |
 |---|---|---|
 | AI ボタンを押しても何も起きない | `VITE_API_BASE_URL` が未設定、または古いAPIエンドポイントを指している | GitHub Secrets とフロントの `.env` を確認して再デプロイ |
-| AIコメントが毎回同じ定型文になる | Gemini API キーが読めていない、またはモデル名が廃止されている | SSMパラメータ名の先頭スラッシュ有無を確認（上記1参照）。CloudWatch Logs の `generateSpotScoreBatch` で `SSM get_parameter error` や `Gemini API error` が出ていないか確認 |
+| AIコメントが毎回同じ定型文になる | Claude API キーが読めていない、またはモデル名が廃止されている | SSMパラメータ名の先頭スラッシュ有無を確認（上記1参照）。CloudWatch Logs の `generateSpotScoreBatch` で `SSM get_parameter error` や `Claude API error` が出ていないか確認 |
 | 地図が表示されない | `VITE_GOOGLE_MAPS_KEY` が無効、または未設定 | Google Cloud Console で Maps JavaScript API を有効化。ローカルビルド（Cloudflare Pages等）には `frontend/.env` にも直接設定が必要（GitHub Secretsとは別管理） |
 | スポットが表示されない | 初期データ未投入 | 手順4の `seed_data.py` を再実行 |
-| Lambda がエラー | Gemini API キーが未設定・無効 | 手順1の SSM パラメータを確認 |
+| Lambda がエラー | Claude API キーが未設定・無効 | 手順1の SSM パラメータを確認 |
 | 「新スポットを探す」を押しても増えない | Google Places API キー未登録、または請求先アカウント未紐付け | 手順1の `fishing-ai/google-places-api-key` を確認。CloudWatch Logs の `discoverSpotsBatch` で `Places API` のエラーが出ていないか確認 |
 | 写真アップロードが失敗する | S3バケットのCORS設定漏れ、または署名付きURLの有効期限切れ（5分） | `UploadsBucket` の CORS 設定を確認。アップロードは選択直後に行うため通常は期限切れにならない |
 | 投稿が反映されない | `POST /posts` の失敗、または一覧の再取得漏れ | ブラウザの開発者ツールでAPIレスポンスを確認。ページ再読み込みで反映されるか確認 |
-| AI相談が「回答の生成に失敗しました」を返す | Gemini API呼び出しがエラー、または `PostChatFunction` の25秒Timeoutを超過 | CloudWatch Logs の `postChatHandler` で `Gemini chat error` を確認。画像添付時は特に時間がかかりやすい |
+| AI相談が「回答の生成に失敗しました」を返す | Claude API呼び出しがエラー、または `PostChatFunction` の25秒Timeoutを超過 | CloudWatch Logs の `postChatHandler` で `Claude chat error` を確認。画像添付時は特に時間がかかりやすい |
 | AI相談でカメラが起動しない | ブラウザ/OSがcapture属性に対応していない、またはHTTPS配信でない | 本番URL（CloudFront/Cloudflare、どちらもHTTPS）でアクセスしているか確認。非対応環境では自動的に通常のファイル選択にフォールバックする |
 | 「ホーム画面に追加」が出てこない | HTTPS配信でない、またはmanifest/Service Workerが読み込めていない | 本番URLでアクセスしているか確認。ブラウザの開発者ツール→Application タブで `manifest.webmanifest` と `sw.js` が正しく読めているか確認 |
 | 画像アップロードで「画像サイズが大きすぎます」と出る | ファイルが8MB（`MAX_UPLOAD_BYTES`）を超えている | 写真を圧縮するか小さいサイズで撮り直す。上限値自体を変える場合は `handlers.py` の `MAX_UPLOAD_BYTES` と `api/client.ts` の `MAX_UPLOAD_BYTES` を両方変更すること |
@@ -325,8 +329,8 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 | ログインボタンを押してもエラーになる／リダイレクトされない | `VITE_COGNITO_USER_POOL_ID`/`VITE_COGNITO_CLIENT_ID`/`VITE_COGNITO_DOMAIN` が未設定、またはビルド後にSecrets設定した場合の再ビルド忘れ | 上記「9.3 デプロイ」参照。3つとも設定してから再ビルド（再push）する |
 | Googleログイン後に `redirect_mismatch` エラーになる | Google Cloud ConsoleのOAuthクライアントの承認済みリダイレクトURIが実際のCognitoドメインと不一致 | 上記「9.1」の手順でURIを再確認（`/oauth2/idpresponse` を忘れていないか、末尾スラッシュや大文字小文字の違いがないか） |
 | お気に入り・投稿・AI相談を使おうとすると常にログイン画面に飛ばされる | 想定どおりの動作（これらはログイン必須の操作） | ナビ右上の「ログイン」からGoogleアカウントでログインする |
-| AI相談が「本日の利用回数の上限に達しました」を返す | Geminiコスト管理のための1日あたりレート制限（`DAILY_CHAT_LIMIT`）に達した | 想定どおりの動作。翌日には自動でリセットされる（`UsageTable`のTTLで自動削除）。上限値を変える場合は `handlers.py` の `DAILY_CHAT_LIMIT` を編集して再デプロイ |
-| 「AI分析を実行」「現在地から新スポットを探す」「釣具店を探す」が「本日の利用回数（n件）に達しました」を返す | Places/Gemini APIコスト保護のための1日あたりレート制限（2026-07-26追加）に達した | 想定どおりの動作。翌日には自動でリセットされる。上限値は`template.yaml`の`RATE_LIMIT_DAILY`（AI分析・新スポット探索）または`tackle_shops.py`の`DAILY_SEARCH_LIMIT`（釣具店検索）で調整できる |
+| AI相談が「本日の利用回数の上限に達しました」を返す | Claude APIコスト管理のための1日あたりレート制限（`DAILY_CHAT_LIMIT`）に達した | 想定どおりの動作。翌日には自動でリセットされる（`UsageTable`のTTLで自動削除）。上限値を変える場合は `handlers.py` の `DAILY_CHAT_LIMIT` を編集して再デプロイ |
+| 「AI分析を実行」「現在地から新スポットを探す」「釣具店を探す」が「本日の利用回数（n件）に達しました」を返す | Places/Claude APIコスト保護のための1日あたりレート制限（2026-07-26追加）に達した | 想定どおりの動作。翌日には自動でリセットされる。上限値は`template.yaml`の`RATE_LIMIT_DAILY`（AI分析・新スポット探索）または`tackle_shops.py`の`DAILY_SEARCH_LIMIT`（釣具店検索）で調整できる |
 | 投稿の編集ボタンが表示されない | 自分の投稿ではない（他人の投稿には表示されない仕様） | 想定どおりの動作。自分の投稿のみ編集・削除ボタンが表示される |
 | 投稿を編集しようとすると失敗する | 他人の投稿を編集しようとした（backend側の所有者チェックで403） | 通常UI上は自分の投稿にしか編集ボタンが出ないため発生しないはずだが、発生する場合はログイン中のアカウントを確認 |
 
@@ -388,7 +392,7 @@ aws ssm put-parameter \
 > `SSM Secure reference is not supported in: [AWS::Cognito::UserPoolIdentityProvider/Properties/ProviderDetails/client_secret]`
 > というエラーになった。CloudFormationの動的参照（`{{resolve:ssm-secure:...}}`）でSecureStringが
 > 使えるリソース/プロパティは限られており、CognitoのIdentityProvider client_secretは対象外。
-> そのため他のシークレット（Gemini/Places APIキー）とは異なり、client_secretのみ通常の
+> そのため他のシークレット（Claude/Places APIキー）とは異なり、client_secretのみ通常の
 > String（非暗号化）パラメータとして登録する。読み取りはCloudFormationのスタック実行時のみで
 > IAM権限も絞っているため、実運用上のリスクは限定的と判断している。
 
@@ -410,11 +414,11 @@ aws cloudformation describe-stacks \
 ローカル開発（`npm run dev`）の場合は `frontend/.env` に同じ3つの値を設定する
 （`.env.example` 参照）。
 
-### 9.4 Geminiコスト管理（1日あたりのAI相談回数上限）
+### 9.4 Claudeコスト管理（1日あたりのAI相談回数上限）
 
 認証で実ユーザーIDが取れるようになったことを利用し、AI相談（`POST /chat`）に
 1ユーザー1日あたり30件（`handlers.py` の `DAILY_CHAT_LIMIT`）の上限を設けている。
-超過時はGeminiを呼ばずに429エラーを返す（フロントには「本日の利用回数の上限に達しました」
+超過時はClaudeを呼ばずに429エラーを返す（フロントには「本日の利用回数の上限に達しました」
 と表示される）。カウンタは `UsageTable`（DynamoDB）にTTL付きで記録され、翌々日には自動で消える。
 
 ---
@@ -426,14 +430,25 @@ aws cloudformation describe-stacks \
 （80%/100%到達時に rfunao0955@gmail.com へメール通知）。追加の手動設定は不要。
 金額を変更したい場合は `CostBudget.Properties.Budget.BudgetLimit.Amount` を編集して再デプロイする。
 
-### Google Cloud（Gemini/Places、手動設定が必要）
-Gemini・Places・MapsのAPI課金はAWSの外（Google Cloud）で発生するため、AWS Budgetsでは検知できない。
+### Google Cloud（Places/Maps、手動設定が必要）
+Places・MapsのAPI課金はAWSの外（Google Cloud）で発生するため、AWS Budgetsでは検知できない。
 以下の手順で別途設定すること（自動化不可・GCPコンソールでの手動操作のみ）。
 
 1. [Google Cloud Console → お支払い → 予算とアラート](https://console.cloud.google.com/billing/budgets) を開く
-2. 「予算を作成」→ 対象プロジェクト（Gemini/Places/Maps APIキーを発行したプロジェクト）を選択
-3. 予算額を設定（例: 月$10〜20程度。Gemini API側にも別途無料枠がある）
+2. 「予算を作成」→ 対象プロジェクト（Places/Maps APIキーを発行したプロジェクト）を選択
+3. 予算額を設定（例: 月$10〜20程度）
 4. しきい値（50%/90%/100%など）でメール通知を設定
 
-> AI相談のレート制限（上記9.4）で最も課金リスクの高いGemini呼び出しは抑制済みだが、
-> それでも想定外の利用があった場合に気づけるよう、このアラートは設定しておくことを推奨する。
+### Anthropic（Claude、手動設定が必要、2026-07-26追加）
+Claude APIの課金もAWS/Google Cloudいずれの外（Anthropic）で発生するため、同様に別途設定が必要。
+Anthropicには無料枠は無く従量課金のみだが、Haikuモデルは単価が低く
+このアプリ規模（AI分析・AI相談合わせて1日数十リクエスト程度）では月額数十〜数百円程度に収まる見込み。
+
+1. [Anthropic Console → Settings → Billing](https://console.anthropic.com/settings/billing) を開く
+2. 「Set spend limit」で月あたりの上限額を設定（例: 月$5〜10程度）
+3. 上限に達すると自動的にAPIリクエストが拒否されるようになる
+   （このアプリ側は「APIキー未設定時」と同じフォールバック文言を返すため、Lambda自体はエラーにならない）
+
+> AI相談のレート制限（上記9.4）およびAI分析・新スポット探索・釣具店検索のレート制限（上記13）で
+> 課金リスクは抑制済みだが、それでも想定外の利用があった場合に気づけるよう、
+> Anthropic Console側の上限設定も行っておくことを推奨する。

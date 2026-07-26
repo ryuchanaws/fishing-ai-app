@@ -77,7 +77,7 @@ def get_ssm_parameter(name: str) -> str:
         return ""
 
 
-# 2026-07-26追加: AI分析実行・新スポット探索・釣具店検索はPlaces/Gemini APIの呼び出しを伴い
+# 2026-07-26追加: AI分析実行・新スポット探索・釣具店検索はPlaces/Claude APIの呼び出しを伴い
 # 課金対象のため、handlers.py の _get_user_id / _check_and_increment_daily_usage と同じ仕組みを
 # バッチ系Lambda（admin_trigger.py・tackle_shops.py）向けにも用意する。
 # api/ と batch/ はSAMの別デプロイパッケージのため、コードは共有できずここに複製している

@@ -425,3 +425,12 @@ def test_build_spots_context_sorts_by_distance_when_location_given(dynamodb_tabl
     context = handlers._build_spots_context(35.0, 139.0)
     assert context.index("近いスポット") < context.index("遠いスポット")
     assert "現在地から" in context
+
+
+def test_generate_chat_reply_without_api_key_returns_fallback(dynamodb_tables):
+    """Anthropic APIキー未設定時（SSMパラメータ未登録）はエラーにならずフォールバック文言を返す
+    （2026-07-26追加。moto環境下ではSSMパラメータが存在しないため実際にこの経路を通る）。"""
+    handlers = dynamodb_tables
+
+    reply = handlers._generate_chat_reply([], "こんにちは", None)
+    assert reply == "現在AI機能を利用できません（APIキー未設定）。しばらくしてからお試しください。"

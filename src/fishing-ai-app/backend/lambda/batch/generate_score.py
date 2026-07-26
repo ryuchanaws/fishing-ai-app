@@ -13,16 +13,17 @@ POST /admin/run-ai-batch による手動実行で起動される。
     1. Spots テーブルから全スポットを取得
     2. 各スポットの天気・潮汐スコアを取得（外部API or シミュレーション）
     3. ルールベースのスコア式でスコアを計算（毎回・全スポット分実行）
-    4. Gemini API で推薦理由（reason）を日本語生成。ただし2026-07-26追加の最適化により、
+    4. Claude API で推薦理由（reason）を日本語生成。ただし2026-07-26追加の最適化により、
        スコアがほぼ変わっておらず（変化幅がREASON_SCORE_CHANGE_THRESHOLD未満）、かつ
        前回生成からREASON_MAX_AGE_DAYS日以内のスポットは前回の文章を使い回し、
-       Geminiは呼ばない（スポット数の増加でGemini無料枠を1回の実行で使い切ってしまう
-       問題への対応。詳細設計.html参照）
+       Claudeは呼ばない（もともとはGemini無料枠の1日20リクエスト制限を1回の実行で
+       使い切ってしまう問題への対応だったが、2026-07-26にClaude Haikuへ移行した後も
+       無駄なAPI呼び出し・コストを避けるためそのまま維持している。詳細設計.html参照）
     5. Recommendations テーブルに結果を保存（reasonを使い回した場合もスコア・updatedAtは
        毎回更新するため、フロントのポーリング完了判定には影響しない）
 
 Requirements:
-    - 環境変数 SPOTS_TABLE / RECOMMENDATIONS_TABLE / GEMINI_API_KEY が設定済みであること
+    - 環境変数 SPOTS_TABLE / RECOMMENDATIONS_TABLE が設定済みであること
     - Lambda 実行ロールに DynamoDB の読み書き権限があること
     - anthropic パッケージがインストール済みであること（pip install anthropic）
 """
@@ -34,7 +35,7 @@ from decimal import Decimal
 from datetime import datetime, timezone
 from typing import Any
 
-import google.generativeai as genai
+import anthropic
 
 from batch_common import get_table as _get_table, http_get_json as _http_get_json, get_ssm_parameter
 from discover_spots import run_discovery
@@ -49,17 +50,16 @@ OPEN_METEO_MARINE_URL = "https://marine-api.open-meteo.com/v1/marine"
 # 環境変数からテーブル名・SSMパラメータ名を取得
 SPOTS_TABLE           = os.environ.get("SPOTS_TABLE", "fishing-spots")
 RECOMMENDATIONS_TABLE = os.environ.get("RECOMMENDATIONS_TABLE", "fishing-recommendations")
-# GEMINI_API_KEY は変数名にAPIキーとあるが、実際に入るのは
-# SSM Parameter Store 上のパラメータ「名前」（/fishing-ai/gemini-api-key）であり、
-# 実際のキー文字列自体は _get_gemini_api_key() が実行時にSSMから取得する。
-# なお参照している環境変数名 "GEMINI_API_KEY_PARAM" は template.yaml の
-# Globals では設定されていない（template.yaml 側は "GEMINI_API_KEY" という
-# 別名で設定している）ため、この os.environ.get は常にデフォルト値
-# "/fishing-ai/gemini-api-key" にフォールバックする（現状はそれで正しく動作する）。
-GEMINI_API_KEY = os.environ.get(
-    "GEMINI_API_KEY_PARAM",
-    "/fishing-ai/gemini-api-key",
+# ANTHROPIC_API_KEY_PARAM は変数名にAPIキーとあるが、実際に入るのは
+# SSM Parameter Store 上のパラメータ「名前」（/fishing-ai/anthropic-api-key）であり、
+# 実際のキー文字列自体は _get_anthropic_api_key() が実行時にSSMから取得する。
+ANTHROPIC_API_KEY_PARAM = os.environ.get(
+    "ANTHROPIC_API_KEY_PARAM",
+    "/fishing-ai/anthropic-api-key",
 )
+
+# Claude Haiku（低コスト・高速なモデル）を使用。詳細設計.html参照
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 # CORS ヘッダー（手動実行APIからのレスポンスに付与）
 CORS = {
@@ -69,18 +69,18 @@ CORS = {
 }
 
 # 2026-07-26追加（コスト削減）: スポット数が増えたことで「AI分析を実行」1回が
-# スポット数と同じ回数だけGemini APIを呼ぶようになり、Geminiの無料枠（20回/日）を
-# 一撃で使い切ってしまう問題があった。スコアがほとんど変わっていない・最近生成済みの
-# スポットは理由文（reason）を使い回し、Gemini呼び出しを本当に必要な分だけに絞る。
+# スポット数と同じ回数だけAPIを呼ぶようになる。Claude Haikuは無料枠の回数制限は無いが、
+# 呼び出し自体には費用がかかるため、スコアがほとんど変わっていない・最近生成済みの
+# スポットは理由文（reason）を使い回し、呼び出しを本当に必要な分だけに絞る。
 # スコア自体（天気・潮汐・DynamoDB保存）は毎回計算・更新するため、フロントのポーリング
 # （全スポットのupdatedAtが新しくなったかで完了判定）には影響しない。
 REASON_SCORE_CHANGE_THRESHOLD = 10.0  # スコアがこれ以上動いたら理由文を再生成する
 REASON_MAX_AGE_DAYS = 3  # スコアが動かなくても、これだけ日数が経ったら再生成する
 
 
-def _get_gemini_api_key() -> str:
-    """SSM Parameter StoreからGemini APIキーを取得する。"""
-    return get_ssm_parameter(GEMINI_API_KEY)
+def _get_anthropic_api_key() -> str:
+    """SSM Parameter StoreからAnthropic APIキーを取得する。"""
+    return get_ssm_parameter(ANTHROPIC_API_KEY_PARAM)
 
 # ─── Score formula ───────────────────────────────────────────────────
 def calc_score(fish_prob: float, weather: float, tide: float,
@@ -251,13 +251,13 @@ def estimate_fish_probability(spot_name: str, fish_types: list[str]) -> float:
     return min(95.0, max(20.0, base + random.uniform(-10, 10)))
 
 
-# ─── AI reason generation via Gemini ─────────────────────────────────
+# ─── AI reason generation via Claude ─────────────────────────────────
 def generate_reason(spot_name: str, fish_types: list[str], score: float,
                     weather_score: float, tide_score: float,
                     distance_km: float) -> str:
-    """Gemini API を使って釣りスポットの推薦理由を日本語で生成する。
+    """Claude API を使って釣りスポットの推薦理由を日本語で生成する。
 
-    GEMINI_API_KEY が未設定の場合はフォールバック文言を返す。
+    Anthropic APIキーが未設定の場合はフォールバック文言を返す。
     API エラー時もフォールバック文言を返し、Lambda を継続させる。
 
     Args:
@@ -271,14 +271,13 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
     Returns:
         str: 釣りスポットの推薦理由（2〜3文の日本語）
     """
-    api_key = _get_gemini_api_key()
+    api_key = _get_anthropic_api_key()
     if not api_key:
         return f"{spot_name}は現在の天気・潮汐条件が良好で、{', '.join(fish_types)}の釣果が期待できます。"
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-flash-latest")
-        
+        client = anthropic.Anthropic(api_key=api_key)
+
         prompt = f"""あなたは釣りの専門家です。以下のデータを元に、釣り人向けに「なぜこのスポットが今日おすすめか」を2〜3文の自然な日本語で説明してください。専門用語を使いつつも親しみやすい文体で。
 
 スポット名: {spot_name}
@@ -290,16 +289,20 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
 
 説明文のみ出力してください（前置き不要）:"""
 
-        response = model.generate_content(prompt)
-        return response.text.strip()
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return response.content[0].text.strip()
 
     except Exception as e:
-        print(f"Gemini API error: {e}")
+        print(f"Claude API error: {e}")
         return f"{spot_name}は現在のコンディションが良好です。{', '.join(fish_types)}の釣果が見込めます。"
 
 
 def _should_regenerate_reason(existing: dict[str, Any] | None, new_score: float) -> bool:
-    """既存の推薦理由（reason）を使い回さず、Geminiで再生成すべきかを判定する（2026-07-26追加）。
+    """既存の推薦理由（reason）を使い回さず、Claudeで再生成すべきかを判定する（2026-07-26追加）。
 
     以下のいずれかに該当する場合は再生成が必要:
         - このスポットの推薦データがまだ無い（初回）
@@ -313,7 +316,7 @@ def _should_regenerate_reason(existing: dict[str, Any] | None, new_score: float)
         new_score (float): 今回計算したスコア
 
     Returns:
-        bool: Geminiで理由文を再生成すべきならTrue
+        bool: Claudeで理由文を再生成すべきならTrue
     """
     if not existing or not existing.get("reason"):
         return True
@@ -385,10 +388,10 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     # 既存の推薦データをspotIdごとの辞書にしておく（reason使い回し判定用。2026-07-26追加）
     existing_recs: dict[str, dict[str, Any]] = {r["spotId"]: r for r in rec_table.scan()["Items"]}
 
-    # スポットごとに直列処理する。並列化していないのは、Gemini API呼び出し
+    # スポットごとに直列処理する。並列化していないのは、Claude API呼び出し
     # （1件あたり数秒）が支配的でDynamoDBの負荷は問題にならないため、
     # 実装の単純さを優先している。2026-07-26のreason使い回し最適化後は、
-    # 大半のスポットでGeminiを呼ばなくなるため所要時間は実行のたびに変動する
+    # 大半のスポットでClaudeを呼ばなくなるため所要時間は実行のたびに変動する
     # （スコアが大きく動いた/久しぶりのスポットが多いほど時間がかかる）。
     processed = 0
     reason_regenerated = 0
@@ -410,8 +413,8 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         # スコアはルールベースで決定論的に計算し、reason文だけAIに生成させる
         score = calc_score(fish_prob, weather_score, tide_score, distance_km, cost_yen)
 
-        # reasonはスコアが大きく動いた/一定日数経過した場合のみGeminiで再生成し、
-        # そうでなければ前回の文章を使い回す（Gemini呼び出し削減。2026-07-26追加）
+        # reasonはスコアが大きく動いた/一定日数経過した場合のみClaudeで再生成し、
+        # そうでなければ前回の文章を使い回す（API呼び出し削減。2026-07-26追加）
         existing = existing_recs.get(spot_id)
         if _should_regenerate_reason(existing, score):
             reason = generate_reason(spot_name, fish_types, score,
@@ -437,7 +440,7 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         processed += 1
         print(f"  Processed: {spot_name} → score={score:.1f}")
 
-    print(f"  Gemini reason calls: {reason_regenerated}/{processed} (残りは前回の文章を使い回し)")
+    print(f"  Claude reason calls: {reason_regenerated}/{processed} (残りは前回の文章を使い回し)")
 
     result: dict[str, Any] = {
         "status": "completed",

@@ -15,7 +15,7 @@ run_discovery() が中核ロジックで、2つの経路から呼ばれる:
     新しいスポットを増やす手段がなかった。実在の場所データを使うため、
     LLMにスポット名や座標を直接生成させるのではなく、Google Places API の
     テキスト検索結果（実POIデータ）のみを候補として採用する。
-    Gemini は座標や実在性に関わらない付随情報（想定される魚種）の推測にのみ使う。
+    Claude は座標や実在性に関わらない付随情報（想定される魚種）の推測にのみ使う。
 
 Requirements:
     - 環境変数 SPOTS_TABLE が設定済みであること
@@ -31,7 +31,7 @@ from decimal import Decimal
 from typing import Any, Optional
 from urllib.parse import quote
 
-import google.generativeai as genai
+import anthropic
 
 from batch_common import http_get_json, get_table, get_ssm_parameter
 
@@ -39,7 +39,10 @@ PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/
 
 # SSMパラメータ名は "/"を含む階層型のため先頭スラッシュ必須（AWSの仕様）
 GOOGLE_PLACES_API_KEY_PARAM = "/fishing-ai/google-places-api-key"
-GEMINI_API_KEY_PARAM = "/fishing-ai/gemini-api-key"
+ANTHROPIC_API_KEY_PARAM = "/fishing-ai/anthropic-api-key"
+
+# Claude Haiku（低コスト・高速なモデル）を使用。詳細設計.html参照
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"
 
 SPOTS_TABLE = os.environ.get("SPOTS_TABLE", "fishing-spots")
 
@@ -131,14 +134,14 @@ def search_places(query: str, api_key: str, location_bias: Optional[dict[str, fl
 
 
 def guess_fish_types(spot_name: str, address: str, api_key: str) -> list[str]:
-    """Gemini APIで地名・住所から想定される魚種を推測する。
+    """Claude APIで地名・住所から想定される魚種を推測する。
 
     APIキー未設定時・エラー時は汎用デフォルトを返し、バッチを継続させる。
 
     Args:
         spot_name (str): スポット名
         address   (str): 住所
-        api_key   (str): Gemini API キー
+        api_key   (str): Anthropic API キー
 
     Returns:
         list[str]: 推測された魚種リスト（3〜5種）
@@ -148,17 +151,20 @@ def guess_fish_types(spot_name: str, address: str, api_key: str) -> list[str]:
         return default_fish
 
     try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel("gemini-flash-latest")
+        client = anthropic.Anthropic(api_key=api_key)
         prompt = f"""次の釣り場で一般的に釣れる魚種を3〜5種、日本語の魚名のみカンマ区切りで答えてください。前置き・説明は不要です。
 
 場所: {spot_name}（{address}）"""
-        response = model.generate_content(prompt)
-        fish = [f.strip() for f in response.text.strip().split(",") if f.strip()]
+        response = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=100,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        fish = [f.strip() for f in response.content[0].text.strip().split(",") if f.strip()]
         return fish[:5] if fish else default_fish
 
     except Exception as e:
-        print(f"Gemini fish-type guess error: {e}")
+        print(f"Claude fish-type guess error: {e}")
         return default_fish
 
 
@@ -194,7 +200,7 @@ def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str,
             key = f"{c['lat']:.5f},{c['lng']:.5f}"
             candidates.setdefault(key, c)
 
-    gemini_key = get_ssm_parameter(GEMINI_API_KEY_PARAM)
+    anthropic_key = get_ssm_parameter(ANTHROPIC_API_KEY_PARAM)
     base_lat = location_bias["lat"] if location_bias else DEFAULT_BASE_LAT
     base_lng = location_bias["lng"] if location_bias else DEFAULT_BASE_LNG
     added, skipped = 0, 0
@@ -215,7 +221,7 @@ def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str,
             continue
 
         distance_km = haversine_km(base_lat, base_lng, c["lat"], c["lng"])
-        fish_types = guess_fish_types(c["name"], c["address"], gemini_key)
+        fish_types = guess_fish_types(c["name"], c["address"], anthropic_key)
 
         spot_id = f"spot-{random.getrandbits(32):08x}"
         spots_table.put_item(Item={

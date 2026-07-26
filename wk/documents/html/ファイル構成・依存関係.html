@@ -23,7 +23,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <div class="box">
 本書は「どの画面が何をするか」「どのファイルがどのファイルを読んでいるか」を一覧できるようにするための
-リファレンス。2026-07-26時点の実装内容に基づく（認証・Geminiコスト管理・利用料アラート・
+リファレンス。2026-07-26時点の実装内容に基づく（認証・Claudeコスト管理・利用料アラート・
 ユーザー名・釣具店検索・AIチャットの実データグラウンディング追加後）。
 仕様の背景・意思決定理由は基本設計書.html／詳細設計.html／DEテーブル設計.html を参照。
 </div>
@@ -147,7 +147,7 @@ TOP3カード（<code>RecommendationCard.tsx</code>）はスポット写真が�
 <tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>必須</td><td>Favorites（作成）</td></tr>
 <tr><td>deleteFavoritesHandler</td><td>DELETE /favorites/{spotId}</td><td>必須</td><td>Favorites（削除）</td></tr>
 <tr><td>postPresignUploadHandler</td><td>POST /uploads/presign</td><td>必須</td><td>S3 UploadsBucket（署名付きPOSTフォーム発行のみ）</td></tr>
-<tr><td>postChatHandler</td><td>POST /chat</td><td>必須</td><td>Chats（読み書き）, Usage（1日あたり利用回数のアトミック加算）, Spots・Recommendations（読、実データグラウンディング用。2026-07-26追加）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
+<tr><td>postChatHandler</td><td>POST /chat</td><td>必須</td><td>Chats（読み書き）, Usage（1日あたり利用回数のアトミック加算）, Spots・Recommendations（読、実データグラウンディング用。2026-07-26追加）, S3（画像読み取り）, SSM（Claudeキー）</td></tr>
 <tr><td>getChatsHandler</td><td>GET /chats</td><td>必須</td><td>Chats（読、軽量版）</td></tr>
 <tr><td>getChatHandler</td><td>GET /chats/{chatId}</td><td>必須</td><td>Chats（読、全メッセージ）</td></tr>
 <tr><td>deleteChatHandler</td><td>DELETE /chats/{chatId}</td><td>必須</td><td>Chats（削除）</td></tr>
@@ -169,7 +169,7 @@ TOP3カード（<code>RecommendationCard.tsx</code>）はスポット写真が�
 <table>
 <tr><th>ファイル</th><th>役割</th><th>他ファイルとの関係</th></tr>
 <tr><td>batch_common.py</td><td>DynamoDB/SSM/HTTP GETの共有ヘルパー。2026-07-26追加: get_user_id/check_and_increment_daily_usage（handlers.pyの同名関数と同じロジックのapi/非依存版、コスト保護レート制限用）</td><td>generate_score.py・discover_spots.py・admin_trigger.py・tackle_shops.py から import される（循環import回避のため切り出し）</td></tr>
-<tr><td>generate_score.py</td><td>generateSpotScoreBatch本体。天気/潮汐取得→スコア計算→Gemini推薦理由生成→Recommendations保存</td><td>batch_common を import。handler冒頭で discover_spots.run_discovery() を呼ぶ（新スポット探索も内包）</td></tr>
+<tr><td>generate_score.py</td><td>generateSpotScoreBatch本体。天気/潮汐取得→スコア計算→Claude推薦理由生成→Recommendations保存</td><td>batch_common を import。handler冒頭で discover_spots.run_discovery() を呼ぶ（新スポット探索も内包）</td></tr>
 <tr><td>discover_spots.py</td><td>Google Places APIで新規スポットを探索しSpotsへ追加する中核ロジック（run_discovery）。2026-07-26: Placesの<code>types</code>に"store"を含む候補（釣具店等）を除外するようになった</td><td>batch_common を import。generate_score.py から呼ばれる他、discoverSpotsBatch Lambdaとしても単独稼働。tackle_shops.py からも search_places/haversine_km が import される</td></tr>
 <tr><td>admin_trigger.py</td><td>フロントのボタンから対象バッチをEvent(非同期)invokeする汎用ラッパー。2026-07-26: 環境変数RATE_LIMIT_ACTION/RATE_LIMIT_DAILYでコスト保護のレート制限を追加（上限超過時はバッチを起動せず429）</td><td>環境変数 BATCH_FUNCTION_NAME により、同一コードが adminRunAiBatch と adminRunSpotDiscovery の2つのLambdaとして再利用されている（レート制限の上限値もこの環境変数で関数ごとに変えている）</td></tr>
 <tr><td>tackle_shops.py【2026-07-26追加】</td><td>釣具店を検索して返すだけのLambda（DB書き込みなし・スコアなし）。DAILY_SEARCH_LIMIT（20件/日）のレート制限あり</td><td>discover_spots.py の search_places/haversine_km、batch_common の get_ssm_parameter/get_user_id/check_and_increment_daily_usage を import。同じ../backend/lambda/batch/パッケージに配置</td></tr>
@@ -191,7 +191,7 @@ TOP3カード（<code>RecommendationCard.tsx</code>）はスポット写真が�
 </table>
 
 <div class="box">
-<b>2026-07-26追加（コスト保護）:</b> 上記3関数はPlaces/Gemini APIの呼び出しを伴うため、
+<b>2026-07-26追加（コスト保護）:</b> 上記3関数はPlaces/Claude APIの呼び出しを伴うため、
 AI相談（DAILY_CHAT_LIMIT）と同じ仕組み（<code>UsageTable</code>への<code>ADD</code>によるアトミック加算）で
 1ユーザー1日あたりの上限を設けている。共有ロジックは<code>batch_common.py</code>の
 <code>check_and_increment_daily_usage</code>/<code>get_user_id</code>。上限超過時はバッチ起動・検索を
@@ -238,7 +238,7 @@ TopPage.tsx（ボタン）
  → GenerateSpotScoreBatch を非同期invoke
  → generate_score.py の handler()
     → discover_spots.run_discovery()（新スポット探索、Spotsへ追加）
-    → Spots全件スキャン→天気/潮汐取得→スコア計算→Gemini推薦理由生成
+    → Spots全件スキャン→天気/潮汐取得→スコア計算→Claude推薦理由生成
     → Recommendations へ保存
  → フロントは GET /recommendations を定期的にポーリングして完了を検知
 </pre>
@@ -251,7 +251,7 @@ ChatInput.tsx（写真選択 + 送信）
    → api/client.ts の uploadImageToS3()（S3へ直接POST、バックエンドを経由しない）
    → api/client.ts の sendChatMessage() → POST /chat
  → postChatHandler（handlers.py）
-   → S3から画像バイトを取得 → Geminiへマルチモーダル入力として送信
+   → S3から画像バイトを取得 → Claudeへマルチモーダル入力として送信
    → Chatsテーブルへ保存 → 応答を同期的に返却
 </pre>
 
@@ -265,7 +265,7 @@ ChatInput.tsx（現在地共有トグルON + 送信）
      現在地からの距離（haversine）で近い順にソート→上位40件をテキスト化
    → _generate_chat_reply() のsystem_instructionに上記テキストを埋め込む
      （「データに無い場所は作り出さない」という指示も併記）
-   → Geminiが実データの中から回答を組み立てる
+   → Claudeが実データの中から回答を組み立てる
 </pre>
 
 ---
@@ -289,7 +289,7 @@ ChatInput.tsx（現在地共有トグルON + 送信）
 <tr><td>EventBridge（日次バッチ起動）</td><td>ルール数・イベント数</td><td>無料枠内</td></tr>
 <tr><td>Cognito【新規】</td><td>月間アクティブユーザー数</td><td>無料枠（実質1万MAU程度）内、友人数名なら無料</td></tr>
 <tr><td>AWS Budgets【新規】</td><td>予算数</td><td>2つまで無料。今回1つのみ設定</td></tr>
-<tr><td>Google Gemini API</td><td>トークン数（画像添付は増加）</td><td><b>最も課金リスクが高い部分</b>。無料枠はあるが超過分は従量課金。AI相談への1日あたりレート制限（DAILY_CHAT_LIMIT）で抑制済み</td></tr>
+<tr><td>Anthropic Claude API（Haiku、2026-07-26にGeminiから移行）</td><td>トークン数（画像添付は増加）</td><td><b>最も課金リスクが高い部分</b>。無料枠は無く完全従量課金だがHaikuは低単価。AI相談への1日あたりレート制限（DAILY_CHAT_LIMIT）、AI分析・新スポット探索・釣具店検索へのレート制限で抑制済み</td></tr>
 <tr><td>Google Places API</td><td>リクエスト数</td><td>月$200無料クレジット枠内の想定</td></tr>
 <tr><td>Google Maps JavaScript API</td><td>読み込み回数</td><td>同上、$200クレジット枠</td></tr>
 <tr><td>Cloudflare Workers（ミラー）</td><td>リクエスト数</td><td>無料枠（1日10万リクエスト）で十分</td></tr>
@@ -297,8 +297,9 @@ ChatInput.tsx（現在地共有トグルON + 送信）
 
 <div class="box">
 AWS側は <code>CostBudget</code>（AWS Budgets、月$10・80%/100%到達時にメール通知）で自動監視している。
-Google Cloud側（Gemini/Places/Maps）はAWS Budgetsの対象外のため、GCPコンソールで別途予算アラートを
-手動設定する必要がある（README.mdの「10. 利用料アラート」参照）。
+Google Cloud側（Places/Maps）とAnthropic側（Claude）はAWS Budgetsの対象外のため、
+それぞれのコンソールで別途予算アラート・spend limitを手動設定する必要がある
+（README.mdの「10. 利用料アラート」参照）。
 </div>
 
 ---

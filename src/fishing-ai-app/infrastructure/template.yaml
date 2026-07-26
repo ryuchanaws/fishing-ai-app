@@ -43,15 +43,12 @@ Globals:
         FAVORITES_TABLE: !Ref FavoritesTable
         POSTS_TABLE: !Ref PostsTable
         CHATS_TABLE: !Ref ChatsTable
-        # 1ユーザー・1日あたりのAI呼び出し回数を記録するテーブル（Geminiコスト管理用、2026-07-26追加）
+        # 1ユーザー・1日あたりのAI呼び出し回数を記録するテーブル（Claude APIコスト管理用、2026-07-26追加）
         USAGE_TABLE: !Ref UsageTable
         # ユーザーが登録した表示名を保存するテーブル（2026-07-26追加）
         USERS_TABLE: !Ref UsersTable
         # ユーザー投稿・スポット写真のアップロード先バケット名
         UPLOADS_BUCKET: !Ref UploadsBucket
-        # Gemini API キーを SSM パラメータストアから動的に取得
-        # キーは手順1で登録した /fishing-ai/gemini-api-key を参照
-        GEMINI_API_KEY: "/fishing-ai/gemini-api-key"
         # 手動バッチ実行 Lambda から呼び出し先 Lambda 名を参照するために設定
        #BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
 
@@ -214,7 +211,7 @@ Resources:
         - { AttributeName: userId, KeyType: HASH }
         - { AttributeName: chatId, KeyType: RANGE }
 
-  # ユーザーごとの1日あたりAI呼び出し回数を記録するテーブル（Geminiコスト管理用、2026-07-26追加）
+  # ユーザーごとの1日あたりAI呼び出し回数を記録するテーブル（Claude APIコスト管理用、2026-07-26追加）
   # dateKeyは "chat#2026-07-26" のような "アクション名#日付" 形式。TTLで2日後に自動削除される
   UsageTable:
     Type: AWS::DynamoDB::Table
@@ -489,7 +486,7 @@ Resources:
               Authorizer: CognitoAuthorizer
 
   # POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）
-  # 写真添付時はGeminiへマルチモーダル入力として渡すため、S3読み取り権限も付与
+  # 写真添付時はClaudeへマルチモーダル入力として渡すため、S3読み取り権限も付与
   # Timeoutは API Gateway の29秒上限より短く設定し、超過時もLambda側が先にエラーを返せるようにする
   PostChatFunction:
     Type: AWS::Serverless::Function
@@ -500,7 +497,7 @@ Resources:
       Timeout: 25
       Policies:
         - SSMParameterReadPolicy:
-            ParameterName: fishing-ai/gemini-api-key
+            ParameterName: fishing-ai/anthropic-api-key
         - S3ReadPolicy: { BucketName: !Ref UploadsBucket }
         - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
         # 1日あたりのレート制限カウンタ読み書き用（2026-07-26追加）
@@ -617,7 +614,7 @@ Resources:
   # Lambda 関数定義（バッチ系）
   # ==============================================================
 
-  # 全スポットのスコア計算 + Gemini API による推薦理由生成バッチ
+  # 全スポットのスコア計算 + Claude API による推薦理由生成バッチ
   # 2026-07-24: 新規スポット探索（discover_spots.run_discovery）もこの中で実行するようになったため
   # （「AI分析を実行」が新スポット探索も兼ねる）、Timeoutを300→420秒に拡張し、
   # SpotsTableへの書き込み権限（discover_spots用）とPlaces APIキーの読み取り権限を追加している
@@ -636,7 +633,7 @@ Resources:
             # ARN を組み立てるため、先頭にスラッシュを付けると "parameter//..." という
             # 二重スラッシュのARNになり実際のパラメータと一致しなくなる（AccessDenied の原因）。
             # そのため先頭のスラッシュを付けない。
-            ParameterName: fishing-ai/gemini-api-key
+            ParameterName: fishing-ai/anthropic-api-key
         - SSMParameterReadPolicy:
             # discover_spots.run_discovery が使う Google Places API キー
             ParameterName: fishing-ai/google-places-api-key
@@ -667,7 +664,7 @@ Resources:
       Environment:
         Variables:
           BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
-          # 全スポットの再スコア化+Gemini呼び出し+全国探索を伴う最も重い処理のため上限を低めに設定
+          # 全スポットの再スコア化+Claude呼び出し+全国探索を伴う最も重い処理のため上限を低めに設定
           RATE_LIMIT_ACTION: ai-batch
           RATE_LIMIT_DAILY: "3"
       Policies:
@@ -706,8 +703,8 @@ Resources:
             # （付けると parameter//... という二重スラッシュARNになりAccessDeniedになる。GenerateSpotScoreBatch と同じ注意点）
             ParameterName: fishing-ai/google-places-api-key
         - SSMParameterReadPolicy:
-            # 想定される魚種の推測にGemini APIも使うため、同じキーへの読み取り権限も付与
-            ParameterName: fishing-ai/gemini-api-key
+            # 想定される魚種の推測にClaude APIも使うため、同じキーへの読み取り権限も付与
+            ParameterName: fishing-ai/anthropic-api-key
         - DynamoDBCrudPolicy:
             TableName: !Ref SpotsTable
 
@@ -769,7 +766,7 @@ Resources:
 
   # ==============================================================
   # AWS利用料アラート（月$10、80%/100%到達時にメール通知。2026-07-26追加）
-  # Gemini/Places等のGoogle Cloud側課金はAWS Budgetsでは検知できないため対象外
+  # Places等のGoogle Cloud側課金はAWS Budgetsでは検知できないため対象外
   # （README にGoogle Cloud側の予算アラート設定手順を別途記載）
   # ==============================================================
   CostBudget:

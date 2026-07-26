@@ -76,3 +76,13 @@ def test_should_regenerate_reason_when_updated_at_missing_or_invalid():
 
     bad_updated_at = {"score": 50.0, "reason": "テスト理由文", "updatedAt": "not-a-date"}
     assert generate_score._should_regenerate_reason(bad_updated_at, new_score=50.0) is True
+
+
+def test_generate_reason_without_api_key_returns_fallback_text(monkeypatch):
+    """Anthropic APIキー未設定時はAPI呼び出しをせずフォールバック文言を返す（2026-07-26追加）。"""
+    monkeypatch.setattr(generate_score, "_get_anthropic_api_key", lambda: "")
+    reason = generate_score.generate_reason(
+        "テストスポット", ["アジ", "サバ"], score=80.0, weather_score=90.0, tide_score=70.0, distance_km=5.0
+    )
+    assert "テストスポット" in reason
+    assert "アジ" in reason
