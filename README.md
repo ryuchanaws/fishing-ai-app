@@ -219,6 +219,22 @@ git push origin main
 
 ---
 
+## 7. デプロイ先（2026-07-24 時点）
+
+フロントエンドは2系統に並行デプロイしている。バックエンド（API Gateway/Lambda/DynamoDB）はAWS側1本のみで共通。
+
+| デプロイ先 | URL | デプロイ方法 |
+|---|---|---|
+| AWS（CloudFront） | https://d2ny5ej5kn6jzs.cloudfront.net/ | `main` ブランチへの push で GitHub Actions が自動デプロイ |
+| Cloudflare Workers | https://ryu-chan-fish.ryuchan-aws.workers.dev/ | **2026-07-24〜自動化**: `main` ブランチへの push で GitHub Actions（`deploy-frontend` ジョブ内の `Deploy to Cloudflare Workers` ステップ）が同じビルド成果物を `npx wrangler deploy` する |
+
+> 独自ドメイン（有料）は未取得。無料で使える見た目のURLとして Cloudflare Workers の `*.workers.dev` サブドメインを利用している。
+>
+> Cloudflare側の自動デプロイには GitHub Secrets `CLOUDFLARE_API_TOKEN`（Cloudflareダッシュボード → プロフィール → API Tokens →
+> 「Edit Cloudflare Workers」テンプレートで発行）と `CLOUDFLARE_ACCOUNT_ID` の登録が必要。
+
+---
+
 ## 8. テスト（2026-07-25追加）
 
 `main` へのPull Request作成/更新のたびに `.github/workflows/test.yml` が自動実行される
@@ -297,22 +313,6 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 | Googleログイン後に `redirect_mismatch` エラーになる | Google Cloud ConsoleのOAuthクライアントの承認済みリダイレクトURIが実際のCognitoドメインと不一致 | 上記「9.1」の手順でURIを再確認（`/oauth2/idpresponse` を忘れていないか、末尾スラッシュや大文字小文字の違いがないか） |
 | お気に入り・投稿・AI相談を使おうとすると常にログイン画面に飛ばされる | 想定どおりの動作（これらはログイン必須の操作） | ナビ右上の「ログイン」からGoogleアカウントでログインする |
 | AI相談が「本日の利用回数の上限に達しました」を返す | Geminiコスト管理のための1日あたりレート制限（`DAILY_CHAT_LIMIT`）に達した | 想定どおりの動作。翌日には自動でリセットされる（`UsageTable`のTTLで自動削除）。上限値を変える場合は `handlers.py` の `DAILY_CHAT_LIMIT` を編集して再デプロイ |
-
----
-
-## 7. デプロイ先（2026-07-24 時点）
-
-フロントエンドは2系統に並行デプロイしている。バックエンド（API Gateway/Lambda/DynamoDB）はAWS側1本のみで共通。
-
-| デプロイ先 | URL | デプロイ方法 |
-|---|---|---|
-| AWS（CloudFront） | https://d2ny5ej5kn6jzs.cloudfront.net/ | `main` ブランチへの push で GitHub Actions が自動デプロイ |
-| Cloudflare Workers | https://ryu-chan-fish.ryuchan-aws.workers.dev/ | **2026-07-24〜自動化**: `main` ブランチへの push で GitHub Actions（`deploy-frontend` ジョブ内の `Deploy to Cloudflare Workers` ステップ）が同じビルド成果物を `npx wrangler deploy` する |
-
-> 独自ドメイン（有料）は未取得。無料で使える見た目のURLとして Cloudflare Workers の `*.workers.dev` サブドメインを利用している。
->
-> Cloudflare側の自動デプロイには GitHub Secrets `CLOUDFLARE_API_TOKEN`（Cloudflareダッシュボード → プロフィール → API Tokens →
-> 「Edit Cloudflare Workers」テンプレートで発行）と `CLOUDFLARE_ACCOUNT_ID` の登録が必要。
 
 ---
 
