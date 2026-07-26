@@ -39,7 +39,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td><code>/spots</code></td><td>スポット</td><td><code>pages/SpotsPage.tsx</code></td><td>全スポット一覧（スコア・魚種・ナビリンク）</td></tr>
 <tr><td><code>/tackle-shops</code></td><td>釣具店【2026-07-26追加】</td><td><code>pages/TackleShopsPage.tsx</code></td><td>釣具店の検索（現在地・キーワード）。スコアなし、DB保存なし</td></tr>
 <tr><td><code>/favorites</code></td><td>保存済み</td><td><code>pages/FavoritesPage.tsx</code></td><td>お気に入り登録済みスポットのみ表示</td></tr>
-<tr><td><code>/posts</code></td><td>釣果</td><td><code>pages/PostsPage.tsx</code></td><td>釣果投稿の一覧・作成・削除（投稿者の表示名を表示）</td></tr>
+<tr><td><code>/posts</code></td><td>釣果</td><td><code>pages/PostsPage.tsx</code></td><td>釣果投稿の一覧・作成・編集・削除（投稿者の表示名を表示。編集は本人の投稿のみ、投稿先スポットは変更不可【2026-07-26追加】）</td></tr>
 <tr><td><code>/chat</code></td><td>AI相談</td><td><code>pages/ChatPage.tsx</code></td><td>写真添付対応のAIチャット、会話履歴。実データ（Spots/Recommendations）に基づいた回答に対応【2026-07-26】</td></tr>
 </table>
 
@@ -47,10 +47,12 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 ルーティング定義は <code>App.tsx</code>。全ページ共通のヘッダーは <code>components/NavBar.tsx</code>
 （ロゴクリックで <code>/</code> に戻る、モバイルではラベル非表示、右端にログイン状態を表示）。<br>
 <b>ログイン不要（閲覧）</b>: おすすめ・地図・スポット・釣果投稿の一覧表示。<br>
-<b>ログイン必須（操作）</b>: お気に入り登録/削除、投稿の作成/削除、AI相談、AI分析実行、現在地から新スポット探索、
+<b>ログイン必須（操作）</b>: お気に入り登録/削除、投稿の作成/編集/削除、AI相談、AI分析実行、現在地から新スポット探索、
 釣具店検索（Places API呼び出しのコスト保護のため）。
 未ログインでこれらを操作しようとするとCognito Hosted UI（Googleログイン画面）へ自動遷移するか
-（お気に入り・投稿作成・AI分析実行・新スポット探索・釣具店検索）、ページ自体がログイン案内を表示する（AI相談）。
+（お気に入り・投稿作成・AI分析実行・新スポット探索・釣具店検索）、ページ自体がログイン案内を表示する（AI相談）。<br>
+TOP3カード（<code>RecommendationCard.tsx</code>）はスポット写真が登録されている場合、
+カード上部にヒーロー写真を表示する（その他一覧・お気に入り一覧はホバー/長押しプレビューのみ。2026-07-26追加）。
 </div>
 
 ---
@@ -139,6 +141,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>putSpotImageHandler</td><td>PUT /spots/{spotId}/image</td><td>必須</td><td>Spots（更新）</td></tr>
 <tr><td>getPostsHandler</td><td>GET /posts</td><td>不要</td><td>Posts（読）, Users（読、投稿者の表示名を結合。2026-07-26追加）</td></tr>
 <tr><td>postPostsHandler</td><td>POST /posts</td><td>必須</td><td>Posts（作成。userIdは_get_user_id(event)で取得しリクエストボディの値は無視）</td></tr>
+<tr><td>putPostHandler【2026-07-26追加】</td><td>PUT /posts/{postId}</td><td>必須</td><td>Posts（更新。content/imageUrl/fishCaughtのうち指定されたフィールドのみ更新。所有者チェックはdeletePostHandlerと同じ方式）</td></tr>
 <tr><td>deletePostHandler</td><td>DELETE /posts/{postId}</td><td>必須</td><td>Posts（削除。postId単一PKで所有者情報がキーに無いため、削除前にget_itemして自分の投稿か明示チェック。他人の投稿は403）</td></tr>
 <tr><td>getFavoritesHandler</td><td>GET /favorites</td><td>必須</td><td>Favorites（読）, Spots（読、結合用）</td></tr>
 <tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>必須</td><td>Favorites（作成）</td></tr>
@@ -165,11 +168,11 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <table>
 <tr><th>ファイル</th><th>役割</th><th>他ファイルとの関係</th></tr>
-<tr><td>batch_common.py</td><td>DynamoDB/SSM/HTTP GETの共有ヘルパー</td><td>generate_score.py・discover_spots.py 両方から import される（循環import回避のため切り出し）</td></tr>
+<tr><td>batch_common.py</td><td>DynamoDB/SSM/HTTP GETの共有ヘルパー。2026-07-26追加: get_user_id/check_and_increment_daily_usage（handlers.pyの同名関数と同じロジックのapi/非依存版、コスト保護レート制限用）</td><td>generate_score.py・discover_spots.py・admin_trigger.py・tackle_shops.py から import される（循環import回避のため切り出し）</td></tr>
 <tr><td>generate_score.py</td><td>generateSpotScoreBatch本体。天気/潮汐取得→スコア計算→Gemini推薦理由生成→Recommendations保存</td><td>batch_common を import。handler冒頭で discover_spots.run_discovery() を呼ぶ（新スポット探索も内包）</td></tr>
 <tr><td>discover_spots.py</td><td>Google Places APIで新規スポットを探索しSpotsへ追加する中核ロジック（run_discovery）。2026-07-26: Placesの<code>types</code>に"store"を含む候補（釣具店等）を除外するようになった</td><td>batch_common を import。generate_score.py から呼ばれる他、discoverSpotsBatch Lambdaとしても単独稼働。tackle_shops.py からも search_places/haversine_km が import される</td></tr>
-<tr><td>admin_trigger.py</td><td>フロントのボタンから対象バッチをEvent(非同期)invokeする汎用ラッパー</td><td>環境変数 BATCH_FUNCTION_NAME により、同一コードが adminRunAiBatch と adminRunSpotDiscovery の2つのLambdaとして再利用されている</td></tr>
-<tr><td>tackle_shops.py【2026-07-26追加】</td><td>釣具店を検索して返すだけのLambda（DB書き込みなし・スコアなし）</td><td>discover_spots.py の search_places/haversine_km、batch_common の get_ssm_parameter を import。同じ../backend/lambda/batch/パッケージに配置</td></tr>
+<tr><td>admin_trigger.py</td><td>フロントのボタンから対象バッチをEvent(非同期)invokeする汎用ラッパー。2026-07-26: 環境変数RATE_LIMIT_ACTION/RATE_LIMIT_DAILYでコスト保護のレート制限を追加（上限超過時はバッチを起動せず429）</td><td>環境変数 BATCH_FUNCTION_NAME により、同一コードが adminRunAiBatch と adminRunSpotDiscovery の2つのLambdaとして再利用されている（レート制限の上限値もこの環境変数で関数ごとに変えている）</td></tr>
+<tr><td>tackle_shops.py【2026-07-26追加】</td><td>釣具店を検索して返すだけのLambda（DB書き込みなし・スコアなし）。DAILY_SEARCH_LIMIT（20件/日）のレート制限あり</td><td>discover_spots.py の search_places/haversine_km、batch_common の get_ssm_parameter/get_user_id/check_and_increment_daily_usage を import。同じ../backend/lambda/batch/パッケージに配置</td></tr>
 </table>
 
 <div class="box">
@@ -182,10 +185,18 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><th>SAM論理ID</th><th>Handler指定</th><th>トリガー</th></tr>
 <tr><td>GenerateSpotScoreBatch</td><td>generate_score.handler</td><td>EventBridge（毎日AM6:00 JST）／AdminRunAiBatchFunction経由</td></tr>
 <tr><td>DiscoverSpotsBatch</td><td>discover_spots.handler</td><td>AdminRunSpotDiscoveryFunction経由のみ（自動スケジュールなし）</td></tr>
-<tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch）</td><td>POST /admin/run-ai-batch（認証必須）</td></tr>
-<tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch）</td><td>POST /admin/run-spot-discovery（認証必須）</td></tr>
-<tr><td>SearchTackleShopsFunction【2026-07-26追加】</td><td>tackle_shops.handler</td><td>POST /tackle-shops/search（認証必須。Places API課金保護のため）</td></tr>
+<tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch, RATE_LIMIT_ACTION=ai-batch, RATE_LIMIT_DAILY=3）</td><td>POST /admin/run-ai-batch（認証必須）</td></tr>
+<tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch, RATE_LIMIT_ACTION=spot-discovery, RATE_LIMIT_DAILY=10）</td><td>POST /admin/run-spot-discovery（認証必須）</td></tr>
+<tr><td>SearchTackleShopsFunction【2026-07-26追加】</td><td>tackle_shops.handler（DAILY_SEARCH_LIMIT=20はコード内定数）</td><td>POST /tackle-shops/search（認証必須。Places API課金保護のため）</td></tr>
 </table>
+
+<div class="box">
+<b>2026-07-26追加（コスト保護）:</b> 上記3関数はPlaces/Gemini APIの呼び出しを伴うため、
+AI相談（DAILY_CHAT_LIMIT）と同じ仕組み（<code>UsageTable</code>への<code>ADD</code>によるアトミック加算）で
+1ユーザー1日あたりの上限を設けている。共有ロジックは<code>batch_common.py</code>の
+<code>check_and_increment_daily_usage</code>/<code>get_user_id</code>。上限超過時はバッチ起動・検索を
+行わず429を返す。
+</div>
 
 <div class="box">
 <b>2026-07-26追加:</b> それまでSAMが暗黙生成していたAPI Gatewayを、<code>template.yaml</code>に
@@ -202,7 +213,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>fishing-spots</td><td>SpotsTable</td><td>spotId (PK)</td><td>seed_data.py（手動）, discover_spots.run_discovery, putSpotImageHandler</td></tr>
 <tr><td>fishing-recommendations</td><td>RecommendationsTable</td><td>spotId (PK)</td><td>generate_score.py（generateSpotScoreBatch実行時のみ）</td></tr>
 <tr><td>fishing-favorites</td><td>FavoritesTable</td><td>userId (PK) + spotId (SK)</td><td>postFavoritesHandler / deleteFavoritesHandler</td></tr>
-<tr><td>fishing-posts</td><td>PostsTable</td><td>postId (PK)</td><td>postPostsHandler / deletePostHandler</td></tr>
+<tr><td>fishing-posts</td><td>PostsTable</td><td>postId (PK)</td><td>postPostsHandler / putPostHandler / deletePostHandler</td></tr>
 <tr><td>fishing-chats</td><td>ChatsTable</td><td>userId (PK) + chatId (SK)</td><td>postChatHandler / deleteChatHandler</td></tr>
 <tr><td>fishing-usage</td><td>UsageTable【2026-07-26追加】</td><td>userId (PK) + dateKey (SK, 例: "chat#2026-07-26")</td><td>postChatHandler内の_check_and_increment_daily_usage（ADDによるアトミック加算）。TTL（expiresAt）で翌々日ごろ自動削除</td></tr>
 <tr><td>fishing-users</td><td>UsersTable【2026-07-26追加】</td><td>userId (PK)</td><td>putMyProfileHandler（表示名の作成/更新）。getPostsHandlerがscanして投稿者名の結合に使う</td></tr>

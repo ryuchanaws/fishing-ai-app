@@ -8,7 +8,7 @@
  */
 import { useState, useEffect, useCallback } from "react";
 import type { Post } from "../types";
-import { getPosts, createPost, deletePost as deletePostApi } from "../api/client";
+import { getPosts, createPost, updatePost as updatePostApi, deletePost as deletePostApi } from "../api/client";
 
 /**
  * 釣果投稿を管理するカスタムフック。
@@ -19,6 +19,7 @@ import { getPosts, createPost, deletePost as deletePostApi } from "../api/client
  * @returns {string | null} error   - 一覧取得のエラーメッセージ
  * @returns {string | null} deleteError - 削除失敗時のエラーメッセージ
  * @returns {Function}  submitPost  - 新規投稿を作成する関数
+ * @returns {Function}  editPost    - 投稿を編集する関数
  * @returns {Function}  removePost  - 投稿を削除する関数
  * @returns {Function}  refetch     - 投稿一覧を再取得する関数
  */
@@ -59,6 +60,23 @@ export const usePosts = () => {
   );
 
   /**
+   * 投稿を編集し、成功したら一覧内の該当投稿を更新後の内容に差し替える（2026-07-26追加）。
+   * submitPostと同様、失敗時はそのままthrowする（呼び出し元のPostFormが自身の
+   * インラインエラー表示でキャッチする。他人の投稿編集を試みた場合の403等もここに含まれる）。
+   *
+   * @param {string} postId - 編集対象の投稿ID
+   * @param {object} input - 更新するフィールドのみ（content・imageUrl・fishCaught、いずれも省略可）
+   * @returns {Promise<void>}
+   */
+  const editPost = useCallback(
+    async (postId: string, input: { content?: string; imageUrl?: string; fishCaught?: string[] }) => {
+      const updated = await updatePostApi(postId, input);
+      setPosts((prev) => prev.map((p) => (p.postId === postId ? updated : p)));
+    },
+    []
+  );
+
+  /**
    * 投稿を削除し、成功したら一覧からも取り除く。
    * 他人の投稿を削除しようとした場合など、backend側の所有者チェックで
    * 失敗する可能性があるため、エラーはdeleteErrorに反映してUIに表示する。
@@ -80,5 +98,5 @@ export const usePosts = () => {
     fetchPosts();
   }, [fetchPosts]);
 
-  return { posts, loading, error, deleteError, submitPost, removePost, refetch: fetchPosts };
+  return { posts, loading, error, deleteError, submitPost, editPost, removePost, refetch: fetchPosts };
 };

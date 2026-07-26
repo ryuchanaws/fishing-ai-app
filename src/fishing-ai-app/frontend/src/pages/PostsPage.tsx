@@ -9,11 +9,11 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useAuth } from "react-oidc-context";
-import { Fish, Plus, Trash2 } from "lucide-react";
+import { Fish, Plus, Trash2, Pencil } from "lucide-react";
 import { usePosts } from "../hooks/usePosts";
 import { PostForm } from "../components/PostForm";
 import { getSpots } from "../api/client";
-import type { Spot } from "../types";
+import type { Spot, Post } from "../types";
 
 /**
  * 釣果投稿一覧ページコンポーネント。
@@ -22,9 +22,10 @@ import type { Spot } from "../types";
  */
 export const PostsPage = () => {
   const auth = useAuth();
-  const { posts, loading, error, deleteError, submitPost, removePost } = usePosts();
+  const { posts, loading, error, deleteError, submitPost, editPost, removePost } = usePosts();
   const [spots, setSpots] = useState<Spot[]>([]);
-  const [showForm, setShowForm] = useState(false);
+  /** "create"=新規投稿フォーム、Post=その投稿を編集中、null=フォーム非表示（2026-07-26追加） */
+  const [formTarget, setFormTarget] = useState<"create" | Post | null>(null);
   const [searchParams] = useSearchParams();
   const spotIdFilter = searchParams.get("spotId");
 
@@ -57,7 +58,7 @@ export const PostsPage = () => {
       auth.signinRedirect();
       return;
     }
-    setShowForm(true);
+    setFormTarget("create");
   };
 
   return (
@@ -95,11 +96,16 @@ export const PostsPage = () => {
               <div className="post-body">
                 <div className="post-header-row">
                   <p className="post-spot-name">{spotName(post.spotId)}</p>
-                  {/* 自分の投稿にのみ削除ボタンを表示する（他人の投稿はbackend側でも403になるが、UI上も出さない） */}
+                  {/* 自分の投稿にのみ編集・削除ボタンを表示する（他人の投稿はbackend側でも403になるが、UI上も出さない） */}
                   {auth.user?.profile.sub === post.userId && (
-                    <button className="icon-btn" onClick={() => handleDelete(post.postId)} title="削除" aria-label="投稿を削除">
-                      <Trash2 size={14} />
-                    </button>
+                    <div className="post-header-actions">
+                      <button className="icon-btn" onClick={() => setFormTarget(post)} title="編集" aria-label="投稿を編集">
+                        <Pencil size={14} />
+                      </button>
+                      <button className="icon-btn" onClick={() => handleDelete(post.postId)} title="削除" aria-label="投稿を削除">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
                   )}
                 </div>
                 <p className="post-content">{post.content}</p>
@@ -115,6 +121,7 @@ export const PostsPage = () => {
                 )}
                 <p className="post-date">
                   {post.authorName ?? "匿名"} ・ {new Date(post.createdAt).toLocaleString("ja-JP")}
+                  {post.updatedAt && <span className="post-edited-badge">（編集済み）</span>}
                 </p>
               </div>
             </div>
@@ -122,12 +129,13 @@ export const PostsPage = () => {
         </div>
       )}
 
-      {showForm && (
+      {formTarget && (
         <PostForm
           spots={spots}
           defaultSpotId={spotIdFilter ?? undefined}
-          onSubmit={submitPost}
-          onClose={() => setShowForm(false)}
+          editingPost={formTarget !== "create" ? formTarget : undefined}
+          onSubmit={formTarget === "create" ? submitPost : (input) => editPost(formTarget.postId, input)}
+          onClose={() => setFormTarget(null)}
         />
       )}
     </div>

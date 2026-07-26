@@ -8,6 +8,7 @@
  */
 
 import { useState, useEffect } from "react";
+import axios from "axios";
 import { useAuth } from "react-oidc-context";
 import { LocateFixed, Loader2, AlertCircle, Search, Navigation2, Store } from "lucide-react";
 import { useGeolocation } from "../hooks/useGeolocation";
@@ -47,8 +48,13 @@ export const TackleShopsPage = () => {
       const items = await searchTackleShops(params);
       setResults(items);
       setSearched(true);
-    } catch {
-      setError("検索に失敗しました");
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 429) {
+        // 1日あたりの検索回数上限（コスト保護、2026-07-26追加）
+        setError(err.response.data?.message ?? "本日の検索回数の上限に達しました");
+      } else {
+        setError("検索に失敗しました");
+      }
     } finally {
       setSearching(false);
     }

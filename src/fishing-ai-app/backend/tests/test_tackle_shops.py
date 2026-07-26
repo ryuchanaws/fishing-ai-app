@@ -1,12 +1,21 @@
 """tackle_shops.py のユニットテスト。
 
-DynamoDBへの書き込みが一切無いため moto は不要。search_places・get_ssm_parameter を
-monkeypatch し、実際のGoogle Places APIには一切接続しない。
+DynamoDBへの書き込みが一切無いため moto は不要。search_places・get_ssm_parameter・
+check_and_increment_daily_usage を monkeypatch し、実際のAWS/Google Places APIには
+一切接続しない。
 """
 
 import json
 
+import pytest
+
 import tackle_shops
+
+
+@pytest.fixture(autouse=True)
+def _allow_rate_limit(monkeypatch):
+    """デフォルトではレート制限に掛からないようにする（レート制限自体のテストでは上書きする）。"""
+    monkeypatch.setattr(tackle_shops, "check_and_increment_daily_usage", lambda *a, **k: True)
 
 
 def test_handler_returns_empty_items_without_api_key(monkeypatch):
@@ -73,3 +82,17 @@ def test_handler_caps_results_at_max_results(monkeypatch):
 
     items = json.loads(resp["body"])["items"]
     assert len(items) == tackle_shops.MAX_RESULTS
+
+
+def test_handler_returns_429_when_rate_limited(monkeypatch):
+    """1日あたりの検索回数上限に達している場合はPlaces APIを呼ばずに429を返す（コスト保護）。"""
+    monkeypatch.setattr(tackle_shops, "check_and_increment_daily_usage", lambda *a, **k: False)
+
+    search_calls = []
+    monkeypatch.setattr(tackle_shops, "search_places", lambda *a, **k: search_calls.append(1) or [])
+
+    resp = tackle_shops.handler({"body": json.dumps({"keyword": "東京"})}, None)
+
+    assert resp["statusCode"] == 429
+    assert json.loads(resp["body"])["error"] == "rate_limited"
+    assert search_calls == []

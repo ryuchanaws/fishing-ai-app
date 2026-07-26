@@ -183,6 +183,25 @@ export const deletePost = async (postId: string): Promise<void> => {
 };
 
 /**
+ * 釣果投稿を編集する（2026-07-26追加）。
+ * 指定したフィールドのみ更新される（省略したフィールドは変更されない）。
+ *
+ * @param {string} postId - 編集対象の投稿ID
+ * @param {object} input
+ * @param {string} [input.content] - 投稿本文
+ * @param {string} [input.imageUrl] - 添付画像のURL
+ * @param {string[]} [input.fishCaught] - 釣れた魚種リスト
+ * @returns {Promise<Post>} 更新後の投稿
+ */
+export const updatePost = async (
+  postId: string,
+  input: { content?: string; imageUrl?: string; fishCaught?: string[] }
+): Promise<Post> => {
+  const { data } = await api.put(`/posts/${postId}`, input);
+  return data.post;
+};
+
+/**
  * スポットの写真URLを設定する。
  *
  * @param {string} spotId - 対象スポットID

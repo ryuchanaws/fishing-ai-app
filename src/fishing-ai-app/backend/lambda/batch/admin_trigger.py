@@ -26,6 +26,12 @@ Note:
 Requirements:
     - 環境変数 BATCH_FUNCTION_NAME に呼び出し先 Lambda 名が設定済みであること
     - Lambda 実行ロールに対象 Lambda の invoke 権限があること
+
+2026-07-26追加: このLambdaはPlaces/Gemini APIを呼ぶバッチ処理を起動するため、
+コスト保護のため1ユーザー1日あたりの起動回数に上限を設けている（handlers.pyの
+postChatHandlerと同じ思想）。admin_trigger.pyはAI分析実行・現在地から探すの
+両方で共用されているため、環境変数 RATE_LIMIT_ACTION / RATE_LIMIT_DAILY で
+それぞれ別カウンタ・別上限を指定できるようにしている。
 """
 
 import json
@@ -34,6 +40,8 @@ from datetime import datetime, timezone
 
 import boto3
 
+from batch_common import check_and_increment_daily_usage, get_user_id
+
 # Lambda クライアントを初期化
 # リージョンは環境変数から取得（デフォルト: 東京）
 lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
@@ -41,10 +49,14 @@ lambda_client = boto3.client("lambda", region_name=os.environ.get("AWS_REGION", 
 # 呼び出し先バッチ Lambda の関数名
 BATCH_FUNCTION = os.environ.get("BATCH_FUNCTION_NAME", "generateSpotScoreBatch")
 
+# レート制限用のアクション名・1日あたり上限（関数ごとにtemplate.yamlで設定）
+RATE_LIMIT_ACTION = os.environ.get("RATE_LIMIT_ACTION", "admin-trigger")
+RATE_LIMIT_DAILY = int(os.environ.get("RATE_LIMIT_DAILY", "10"))
+
 # CORS ヘッダー（フロントエンドからのアクセスを許可）
 CORS = {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers": "Content-Type,Authorization",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
 }
 
@@ -74,10 +86,27 @@ def handler(event, context):
                     "status": "failed",
                     "message": str  # エラー内容
                 }
+            本日の利用上限に達している場合 429:
+                {
+                    "status": "rate_limited",
+                    "message": str
+                }
     """
     # CORS プリフライトリクエストを処理
     if event.get("httpMethod") == "OPTIONS":
         return {"statusCode": 200, "headers": CORS, "body": ""}
+
+    # Places/Gemini API呼び出しを伴うバッチのコスト保護（2026-07-26追加）
+    user_id = get_user_id(event)
+    if not check_and_increment_daily_usage(user_id, RATE_LIMIT_ACTION, RATE_LIMIT_DAILY):
+        return {
+            "statusCode": 429,
+            "headers": CORS,
+            "body": json.dumps({
+                "status": "rate_limited",
+                "message": f"本日の利用回数（{RATE_LIMIT_DAILY}件）に達しました。明日またお試しください。",
+            }),
+        }
 
     try:
         # リクエストボディをそのまま呼び出し先Lambdaのeventとして転送する

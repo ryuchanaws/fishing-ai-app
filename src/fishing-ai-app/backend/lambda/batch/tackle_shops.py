@@ -10,12 +10,15 @@ keyword指定時はテキスト検索（例: "神奈川県三浦市"）を行う
 
 2026-07-26追加: おすすめ・新スポット探索からは釣具店を除外する一方（discover_spots.pyの
 EXCLUDED_PLACE_TYPES参照）、釣具店を探したいニーズ自体はあるため別枠の検索機能として切り出した。
+
+2026-07-26追加（コスト保護）: 検索1回ごとにPlaces APIを呼ぶため、admin_trigger.pyと同じ
+1ユーザー1日あたりの上限を設けている。
 """
 
 import json
 from typing import Any
 
-from batch_common import get_ssm_parameter
+from batch_common import check_and_increment_daily_usage, get_ssm_parameter, get_user_id
 from discover_spots import search_places, haversine_km
 
 # SSMパラメータ名は"/"を含む階層型のため先頭スラッシュ必須（discover_spots.pyと同じ注意点）
@@ -29,6 +32,9 @@ CORS = {
 
 # レスポンスに含める最大件数
 MAX_RESULTS = 20
+
+# 1ユーザーが1日に検索できる回数の上限（Places APIコスト保護）
+DAILY_SEARCH_LIMIT = 20
 
 
 def _resp(status: int, body: dict[str, Any]) -> dict[str, Any]:
@@ -51,7 +57,15 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         dict[str, Any]: statusCode=200、body に
             {"items": [{"name", "lat", "lng", "address", "distanceKm"?(lat/lng指定時のみ)}, ...]}
             Places APIキー未登録時はitems: []を返す（discover_spots.pyのskipped方針を踏襲）
+            本日の検索回数上限に達している場合 429: {"error": "rate_limited", "message": str}
     """
+    user_id = get_user_id(event)
+    if not check_and_increment_daily_usage(user_id, "tackle-shop-search", DAILY_SEARCH_LIMIT):
+        return _resp(429, {
+            "error": "rate_limited",
+            "message": f"本日の検索回数（{DAILY_SEARCH_LIMIT}件）に達しました。明日またお試しください。",
+        })
+
     body = json.loads(event.get("body") or "{}")
     lat, lng = body.get("lat"), body.get("lng")
     keyword = (body.get("keyword") or "").strip()

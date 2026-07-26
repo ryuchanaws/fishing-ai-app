@@ -7,7 +7,7 @@
 
 import { useState } from "react";
 import { X, Camera } from "lucide-react";
-import type { Spot } from "../types";
+import type { Spot, Post } from "../types";
 import { getPresignedUploadUrl, uploadImageToS3 } from "../api/client";
 
 /**
@@ -18,7 +18,12 @@ interface PostFormProps {
   spots: Spot[];
   /** 初期選択するスポットID（省略可。クエリパラメータからの絞り込み時などに使用） */
   defaultSpotId?: string;
-  /** 投稿作成時に呼び出す関数 */
+  /**
+   * 編集対象の投稿（省略可、2026-07-26追加）。指定すると編集モードになり、
+   * 既存の内容がプリフィルされる。スポットはAPI側で変更不可のため選択欄も無効化する
+   */
+  editingPost?: Post;
+  /** 投稿作成・編集時に呼び出す関数（編集時もspotIdは変更されないがそのまま渡される） */
   onSubmit: (input: { spotId: string; content: string; imageUrl?: string; fishCaught?: string[] }) => Promise<void>;
   /** フォームを閉じる関数 */
   onClose: () => void;
@@ -30,20 +35,24 @@ interface PostFormProps {
  * - 写真が選択されている場合、送信時に署名付きURLでS3へアップロードしてから
  *   その publicUrl を imageUrl として投稿を作成する
  * - fishCaught はカンマ区切りテキストを配列に変換して送信する
+ * - editingPost が渡された場合は編集モード（既存内容をプリフィル、新しい写真を
+ *   選ばなければ既存の写真URLをそのまま維持する。2026-07-26追加）
  *
  * @param {PostFormProps} props
- * @returns {JSX.Element} 投稿作成フォーム（モーダル）
+ * @returns {JSX.Element} 投稿作成・編集フォーム（モーダル）
  */
-export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormProps) => {
-  const [spotId, setSpotId] = useState(defaultSpotId ?? spots[0]?.spotId ?? "");
-  const [content, setContent] = useState("");
-  const [fishCaughtText, setFishCaughtText] = useState("");
+export const PostForm = ({ spots, defaultSpotId, editingPost, onSubmit, onClose }: PostFormProps) => {
+  const isEditing = !!editingPost;
+  const [spotId, setSpotId] = useState(editingPost?.spotId ?? defaultSpotId ?? spots[0]?.spotId ?? "");
+  const [content, setContent] = useState(editingPost?.content ?? "");
+  const [fishCaughtText, setFishCaughtText] = useState(editingPost?.fishCaught?.join(", ") ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   /**
    * フォーム送信処理。写真があればアップロードを先に済ませてから投稿する。
+   * 編集モードで新しい写真を選ばなかった場合は、既存のimageUrlをそのまま維持する。
    *
    * @param {React.FormEvent} e - フォーム送信イベント
    */
@@ -57,7 +66,7 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
     setSubmitting(true);
     setError(null);
     try {
-      let imageUrl: string | undefined;
+      let imageUrl: string | undefined = editingPost?.imageUrl;
       if (file) {
         const { uploadUrl, uploadFields, publicUrl } = await getPresignedUploadUrl(file.type);
         await uploadImageToS3(uploadUrl, uploadFields, file);
@@ -86,13 +95,19 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
         </button>
 
         <div className="modal-hero">
-          <h2 className="modal-spot-name">釣果を投稿</h2>
+          <h2 className="modal-spot-name">{isEditing ? "釣果を編集" : "釣果を投稿"}</h2>
         </div>
 
         <form className="modal-section post-form" onSubmit={handleSubmit}>
           <label className="post-form-label">
             スポット
-            <select className="post-form-select" value={spotId} onChange={(e) => setSpotId(e.target.value)}>
+            <select
+              className="post-form-select"
+              value={spotId}
+              onChange={(e) => setSpotId(e.target.value)}
+              disabled={isEditing}
+              title={isEditing ? "投稿先スポットは編集できません" : undefined}
+            >
               {spots.map((s) => (
                 <option key={s.spotId} value={s.spotId}>
                   {s.name}
@@ -124,7 +139,7 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
 
           <label className="post-form-label post-form-file">
             <Camera size={16} />
-            {file ? file.name : "写真を選択（任意）"}
+            {file ? file.name : editingPost?.imageUrl ? "現在の写真を維持（変更する場合は選択）" : "写真を選択（任意）"}
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -136,7 +151,7 @@ export const PostForm = ({ spots, defaultSpotId, onSubmit, onClose }: PostFormPr
           {error && <div className="error-banner">{error}</div>}
 
           <button className="btn-nav" type="submit" disabled={submitting}>
-            {submitting ? "投稿中..." : "投稿する"}
+            {submitting ? (isEditing ? "更新中..." : "投稿中...") : isEditing ? "更新する" : "投稿する"}
           </button>
         </form>
       </div>

@@ -431,6 +431,25 @@ Resources:
             Auth:
               Authorizer: CognitoAuthorizer
 
+  # PUT /posts/{postId} — 釣果投稿を編集する（2026-07-26追加）
+  UpdatePostFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: updatePostHandler
+      Handler: handlers.putPostHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref PostsTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /posts/{postId}
+            Method: PUT
+            Auth:
+              Authorizer: CognitoAuthorizer
+
   # PUT /spots/{spotId}/image — スポットの写真URLを設定する
   UpdateSpotImageFunction:
     Type: AWS::Serverless::Function
@@ -648,9 +667,14 @@ Resources:
       Environment:
         Variables:
           BATCH_FUNCTION_NAME: !Ref GenerateSpotScoreBatch
+          # 全スポットの再スコア化+Gemini呼び出し+全国探索を伴う最も重い処理のため上限を低めに設定
+          RATE_LIMIT_ACTION: ai-batch
+          RATE_LIMIT_DAILY: "3"
       Policies:
         # GenerateSpotScoreBatch の invoke 権限のみ付与（最小権限の原則）
         - LambdaInvokePolicy: { FunctionName: !Ref GenerateSpotScoreBatch }
+        # レート制限カウンタ読み書き用（2026-07-26追加）
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
       Events:
         Api:
           Type: Api
@@ -700,8 +724,12 @@ Resources:
       Environment:
         Variables:
           BATCH_FUNCTION_NAME: !Ref DiscoverSpotsBatch
+          RATE_LIMIT_ACTION: spot-discovery
+          RATE_LIMIT_DAILY: "10"
       Policies:
         - LambdaInvokePolicy: { FunctionName: !Ref DiscoverSpotsBatch }
+        # レート制限カウンタ読み書き用（2026-07-26追加）
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
       Events:
         Api:
           Type: Api
@@ -726,6 +754,8 @@ Resources:
         - SSMParameterReadPolicy:
             # 先頭スラッシュを付けない（付けると parameter//... の二重スラッシュARNになりAccessDenied）
             ParameterName: fishing-ai/google-places-api-key
+        # レート制限カウンタ読み書き用（2026-07-26追加）
+        - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
       Events:
         Api:
           Type: Api

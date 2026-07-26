@@ -9,6 +9,7 @@ Endpoints:
     PUT    /spots/{spotId}/image
     GET    /posts
     POST   /posts
+    PUT    /posts/{postId}
     DELETE /posts/{postId}
     GET    /favorites
     POST   /favorites
@@ -516,6 +517,65 @@ def deletePostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     table.delete_item(Key={"postId": post_id})
 
     return _resp(200, {"message": "deleted"})
+
+
+# ─────────────────────────────
+# /posts/{postId} (PUT)
+# ─────────────────────────────
+@handler_guard
+def putPostHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """PUT /posts/{postId} — 釣果投稿を編集する（2026-07-26追加）。
+
+    本文・釣れた魚種・画像URLを更新できる。所有者チェックはdeletePostHandlerと同じ理由・
+    同じ実装（postId単一PKで所有者情報がキーに無いため、更新前にget_itemして
+    自分の投稿か明示チェックする）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
+            pathParameters.postId (str): 編集対象の投稿ID
+            body (str): JSON文字列。content(省略可) / imageUrl(省略可) / fishCaught(省略可)。
+                指定されたフィールドのみ更新する
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"message": "updated", "post": {...}}
+            postId 未指定時 400: {"error": "postId is required"}
+            content が空文字のとき 400: {"error": "content must not be empty"}
+            投稿が存在しない場合 404: {"error": "post not found"}
+            自分の投稿でない場合 403: {"error": "forbidden"}
+    """
+    post_id = (event.get("pathParameters") or {}).get("postId")
+
+    if not post_id:
+        return _resp(400, {"error": "postId is required"})
+
+    body = json.loads(event.get("body") or "{}")
+
+    table = _get_table(POSTS_TABLE)
+    item = table.get_item(Key={"postId": post_id}).get("Item")
+
+    if not item:
+        return _resp(404, {"error": "post not found"})
+
+    if item.get("userId") != _get_user_id(event):
+        return _resp(403, {"error": "forbidden"})
+
+    if "content" in body:
+        content = (body.get("content") or "").strip()
+        if not content:
+            return _resp(400, {"error": "content must not be empty"})
+        item["content"] = content
+    if "imageUrl" in body:
+        item["imageUrl"] = body.get("imageUrl", "")
+    if "fishCaught" in body:
+        item["fishCaught"] = body.get("fishCaught", [])
+
+    item["updatedAt"] = datetime.now(timezone.utc).isoformat()
+
+    table.put_item(Item=item)
+
+    return _resp(200, {"message": "updated", "post": _decimal_to_float(item)})
 
 
 # ─────────────────────────────

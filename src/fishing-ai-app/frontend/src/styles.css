@@ -1028,12 +1028,18 @@ body  {
   padding: 14px 16px;
 }
 
-/* スポット名と削除ボタンを両端揃えで配置する行 */
+/* スポット名と編集・削除ボタンを両端揃えで配置する行 */
 .post-header-row  {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* 編集・削除ボタンの並び（2026-07-26追加） */
+.post-header-actions  {
+  display: flex;
+  gap: 4px;
 }
 
 .post-spot-name  {
@@ -1054,6 +1060,12 @@ body  {
   color: var(--text2);
   font-size: 11px;
   margin-top: 8px;
+}
+
+/* 編集済みバッジ（2026-07-26追加） */
+.post-edited-badge  {
+  margin-left: 4px;
+  font-style: italic;
 }
 
 /* ===== POST FORM ===== */

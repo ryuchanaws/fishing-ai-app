@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import axios from "axios";
 import { useAuth } from "react-oidc-context";
 import { LocateFixed, Loader2, CheckCircle2, AlertCircle } from "lucide-react";
 import { runSpotDiscovery } from "../api/client";
@@ -29,6 +30,8 @@ type Status = "idle" | "locating" | "running" | "done" | "error" | "denied";
 export const SpotDiscoveryButton = () => {
   const auth = useAuth();
   const [status, setStatus] = useState<Status>("idle");
+  /** エラー時の詳細メッセージ（2026-07-26追加。レート制限時はサーバーからの案内文を表示する） */
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   /**
    * 現在地を取得し、取得できたらバッチ起動をリクエストする。
@@ -41,13 +44,20 @@ export const SpotDiscoveryButton = () => {
     }
 
     setStatus("locating");
+    setErrorMessage(null);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         setStatus("running");
         try {
           await runSpotDiscovery({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           setStatus("done");
-        } catch {
+        } catch (err) {
+          if (axios.isAxiosError(err) && err.response?.status === 429) {
+            // 1日あたりの探索回数上限（コスト保護、2026-07-26追加）
+            setErrorMessage(err.response.data?.message ?? "本日の利用上限に達しました");
+          } else {
+            setErrorMessage(null);
+          }
           setStatus("error");
         }
       },
@@ -98,7 +108,7 @@ export const SpotDiscoveryButton = () => {
       {status === "error" && (
         <div className="batch-status error">
           <AlertCircle size={14} />
-          <span>探索の起動に失敗しました</span>
+          <span>{errorMessage ?? "探索の起動に失敗しました"}</span>
         </div>
       )}
     </div>

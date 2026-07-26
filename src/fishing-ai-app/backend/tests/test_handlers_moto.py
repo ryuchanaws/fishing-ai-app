@@ -169,6 +169,86 @@ def test_delete_post_by_owner_succeeds(dynamodb_tables):
     assert delete_resp["statusCode"] == 200
 
 
+def test_put_post_by_owner_updates_content(dynamodb_tables):
+    """投稿者本人による編集は成功し、内容が更新される（2026-07-26追加）。"""
+    handlers = dynamodb_tables
+
+    create_resp = handlers.postPostsHandler(
+        _api_event({"spotId": "spot-001", "content": "元の投稿"}, user_id="user-a"), None
+    )
+    post_id = json.loads(create_resp["body"])["post"]["postId"]
+
+    put_resp = handlers.putPostHandler(
+        _api_event(
+            {"content": "編集後の投稿", "fishCaught": ["アジ"]},
+            path_params={"postId": post_id},
+            user_id="user-a",
+        ),
+        None,
+    )
+    assert put_resp["statusCode"] == 200
+    updated = json.loads(put_resp["body"])["post"]
+    assert updated["content"] == "編集後の投稿"
+    assert updated["fishCaught"] == ["アジ"]
+    assert "updatedAt" in updated
+
+    list_resp = handlers.getPostsHandler(_api_event(), None)
+    items = json.loads(list_resp["body"])["items"]
+    assert next(p for p in items if p["postId"] == post_id)["content"] == "編集後の投稿"
+
+
+def test_put_post_by_other_user_returns_403(dynamodb_tables):
+    """他人（別userId）の投稿を編集しようとすると403になり、内容は変わらない。"""
+    handlers = dynamodb_tables
+
+    create_resp = handlers.postPostsHandler(
+        _api_event({"spotId": "spot-001", "content": "user-aの投稿"}, user_id="user-a"), None
+    )
+    post_id = json.loads(create_resp["body"])["post"]["postId"]
+
+    put_resp = handlers.putPostHandler(
+        _api_event({"content": "改ざん"}, path_params={"postId": post_id}, user_id="user-b"), None
+    )
+    assert put_resp["statusCode"] == 403
+
+    list_resp = handlers.getPostsHandler(_api_event(), None)
+    items = json.loads(list_resp["body"])["items"]
+    assert next(p for p in items if p["postId"] == post_id)["content"] == "user-aの投稿"
+
+
+def test_put_post_without_id_returns_400(dynamodb_tables):
+    """postId未指定でPUTすると400を返す。"""
+    handlers = dynamodb_tables
+
+    resp = handlers.putPostHandler(_api_event({"content": "test"}, path_params={}), None)
+    assert resp["statusCode"] == 400
+
+
+def test_put_post_nonexistent_returns_404(dynamodb_tables):
+    """存在しないpostIdを編集しようとすると404を返す。"""
+    handlers = dynamodb_tables
+
+    resp = handlers.putPostHandler(
+        _api_event({"content": "test"}, path_params={"postId": "no-such-post"}, user_id="user-a"), None
+    )
+    assert resp["statusCode"] == 404
+
+
+def test_put_post_rejects_empty_content(dynamodb_tables):
+    """contentを空文字に更新しようとすると400を返す。"""
+    handlers = dynamodb_tables
+
+    create_resp = handlers.postPostsHandler(
+        _api_event({"spotId": "spot-001", "content": "元の投稿"}, user_id="user-a"), None
+    )
+    post_id = json.loads(create_resp["body"])["post"]["postId"]
+
+    resp = handlers.putPostHandler(
+        _api_event({"content": "   "}, path_params={"postId": post_id}, user_id="user-a"), None
+    )
+    assert resp["statusCode"] == 400
+
+
 def test_chat_lifecycle_seed_then_delete(dynamodb_tables):
     """（Gemini呼び出しを避けるためDBへ直接シードした）チャットを取得→削除→404になることを確認する。"""
     handlers = dynamodb_tables

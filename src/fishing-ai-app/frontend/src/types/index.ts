@@ -92,6 +92,8 @@ export interface Post {
   fishCaught?: string[];
   /** 投稿日時（ISO 8601 形式） */
   createdAt: string;
+  /** 最終編集日時（ISO 8601 形式・省略可。編集されたことがない投稿には無い。2026-07-26追加） */
+  updatedAt?: string;
   /** 結合済みのスポット情報（API レスポンス時に付与・省略可） */
   spot?: Spot;
   /** 投稿者の表示名（サーバー側でUsersTableと結合して付与・省略可。未設定ユーザーは"匿名"） */
