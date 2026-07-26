@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>釣行AIアプリ（つり羅針盤）まるわかりガイド</title>
+<style>
+body { font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", Arial, sans-serif; line-height:1.7; padding:24px; max-width: 860px; margin: 0 auto; color:#222; }
+h1 { color:#1f4e79; }
+h2 { border-left:6px solid #1f4e79; padding-left:10px; margin-top:36px; }
+h3 { color:#2f5597; margin-top:20px; }
+.box { background:#f5f7fa; padding:14px 16px; border-radius:6px; margin:10px 0; }
+.tag { display:inline-block; background:#e8f0fe; color:#1f4e79; font-size:12px; padding:2px 8px; border-radius:12px; margin-bottom:8px; }
+.feature { background:#fff; border:1px solid #dde3ea; border-radius:8px; padding:14px 16px; margin:10px 0; }
+.feature h4 { margin:0 0 6px 0; color:#1f4e79; }
+table { border-collapse: collapse; width:100%; margin:12px 0; }
+th, td { border:1px solid #dde3ea; padding:8px 10px; text-align:left; font-size:14px; }
+th { background:#f5f7fa; }
+.flow { background:#fbf8f0; border:1px dashed #cbb; padding:14px 16px; border-radius:6px; margin:10px 0; font-size:14px; }
+.deep { background:#f0f4fb; border-left:4px solid #7a9cc6; padding:10px 14px; margin:10px 0; font-size:14px; }
+.deep b { color:#1f4e79; }
+code { background:#eef1f5; padding:1px 5px; border-radius:4px; font-size:13px; }
+</style>
+</head>
+
+<body>
+
+<h1>釣行AIアプリ（つり羅針盤）まるわかりガイド</h1>
+
+<div class="box">
+このアプリは「今日、どこに釣りに行けば良さそうか」をAIが考えて教えてくれるアプリです。
+技術に詳しくなくても全体像がわかるように、まず「何ができるか」「どう使うか」を説明し、
+後半で「裏側でどう動いているか」を興味がある人向けにやさしく解説します。
+（<span class="deep" style="display:inline;padding:2px 6px;">こういう青い枠</span>は少し技術的な補足です。読み飛ばしてもOKです）
+</div>
+
+<hr>
+
+<h2>1. ひとことで言うと</h2>
+
+<div class="box">
+天気・潮の満ち引き・釣り場までの距離をAIが分析して、「今日おすすめの釣り場TOP3」を
+理由つきで教えてくれるアプリ。釣果を記録したり、AIに釣りの相談をしたりもできる。
+</div>
+
+<h2>2. できること</h2>
+
+<div class="feature">
+<h4>🏆 おすすめ釣り場TOP3</h4>
+天気・潮汐・距離・費用をもとにスコアを計算し、スコアが高い順にTOP3を写真つきで表示。
+「なぜおすすめなのか」をAIが自然な文章で説明してくれる。
+</div>
+
+<div class="feature">
+<h4>🧭 現在地から探す</h4>
+現在地を起点に距離を計算し直して、近い順に釣り場を案内してくれるモード。
+</div>
+
+<div class="feature">
+<h4>🔎 新スポット自動発見</h4>
+Googleの地図データから実在する新しい釣り場候補を自動で探して追加してくれる。
+釣具店など釣り場でない場所は自動で除外される。
+</div>
+
+<div class="feature">
+<h4>🏪 釣具店を探す</h4>
+現在地や地名から、近くの釣具店を検索できる（釣り場のスコアリングとは別枠）。
+</div>
+
+<div class="feature">
+<h4>💬 AI相談（チャット）</h4>
+「このエサでアジは釣れる？」のように、魚種・エサ・釣果について写真つきでAIに相談できる。
+このアプリに実際に登録されている釣り場データをもとに答えるので、存在しない場所を
+勝手に作り話しない設計になっている。
+</div>
+
+<div class="feature">
+<h4>📸 釣果投稿</h4>
+釣れた魚・写真・コメントを投稿して記録・共有できる。あとから編集も可能。
+</div>
+
+<div class="feature">
+<h4>❤️ お気に入り</h4>
+気に入った釣り場をお気に入り登録して、あとで見返せる。
+</div>
+
+<div class="feature">
+<h4>👤 アカウント・ログイン</h4>
+Googleアカウントでログイン。表示名（ユーザー名）を自分で設定できる。
+</div>
+
+<div class="feature">
+<h4>📱 ホーム画面に追加（PWA）</h4>
+スマホのホーム画面にアプリのように追加できる（アプリストア不要）。
+</div>
+
+<h2>3. 使い方の流れ</h2>
+
+<div class="flow">
+① Googleアカウントでログイン
+　↓
+② トップ画面で「AI分析を実行」を押す（天気・潮汐・AIコメントを最新化）
+　↓
+③ おすすめTOP3とその他のスポット一覧が表示される
+　↓
+④ 気になる場所をタップ→詳細を見る／ナビを開く／お気に入り登録
+　↓
+⑤ 釣行後、「釣果」タブから写真つきで記録を投稿
+　↓
+⑥ わからないことがあれば「AI相談」タブでAIに質問
+</div>
+
+<h2>4. 裏側のしくみ（やさしい説明）</h2>
+
+<p>ここから先は「なぜこんな風に動くの？」が気になる人向けの説明です。専門用語が出てきたら
+その都度かんたんに説明します。</p>
+
+<h3>■ 全体の構成</h3>
+
+<div class="flow">
+あなたのスマホ・PC（アプリの画面）
+　↕
+インターネット経由でAWS（Amazon Web Services）上のプログラムとやりとり
+　↕
+外部の情報源（天気・地図・AI）から情報を集めてくる
+</div>
+
+<div class="box">
+このアプリには「アプリ専用のサーバーが24時間動いている」わけではありません。
+必要なときだけ一瞬だけ動く小さなプログラム（<b>Lambda関数</b>と呼ばれる仕組み）が
+何十個も用意されていて、ボタンを押すたびに該当するプログラムが起動→処理→終了、を
+繰り返しています。使っていない時間は基本的に課金が発生しない仕組みです。
+</div>
+
+<h3>■ おすすめが表示されるまでの流れ</h3>
+
+<table>
+<tr><th>手順</th><th>やっていること</th><th>使っている情報源</th></tr>
+<tr><td>①</td><td>登録済みの釣り場ひとつひとつについて、天気と潮の満ち引きを取得</td><td>Open-Meteo（気象データ、無料）</td></tr>
+<tr><td>②</td><td>天気・潮汐・距離・費用を数式にあてはめてスコア（0〜100点）を計算</td><td>アプリ内のルールベース計算</td></tr>
+<tr><td>③</td><td>スコアが大きく変わった釣り場だけ、AIに「おすすめ理由」の文章を書いてもらう</td><td>Claude（AI、後述）</td></tr>
+<tr><td>④</td><td>計算結果をデータベースに保存し、画面に表示</td><td>DynamoDB（データの保管庫）</td></tr>
+</table>
+
+<div class="deep">
+<b>補足:</b> ③で「スコアが大きく変わった釣り場だけ」としているのは、登録スポット数が
+100件を超えており、毎回全件についてAIに文章を書かせるとコストと時間がかかりすぎるため。
+スコアがほぼ変わっていなければ前回の文章をそのまま使い回すことで、無駄なAI呼び出しを
+減らしている。
+</div>
+
+<h3>■ 新しい釣り場はどうやって見つけているの？</h3>
+
+<div class="box">
+Googleの地図情報（Google Places API）を使って「釣り 堤防」のようなキーワードで
+実在する場所を検索し、座標・住所が確かなものだけを候補として自動追加している。
+場所そのものをAIに考えさせることはしていない（AIが実在しない場所を作り話してしまう
+「ハルシネーション」を避けるため）。AIは「この場所ではどんな魚が釣れそうか」という
+付随的な推測にだけ使っている。
+</div>
+
+<h3>■ AIって何を使っているの？</h3>
+
+<div class="box">
+Anthropic社の<b>Claude</b>というAIモデル（の中でも軽量・低コストな「Haiku」というモデル）を
+使っている。おすすめ理由の文章生成、AI相談チャットの応答、新スポットの魚種推測の3か所で
+利用している。
+</div>
+
+<div class="deep">
+<b>ちょっとした裏話:</b> 開発当初はGoogleの「Gemini」というAIを無料枠で使っていたが、
+釣り場の登録数が100件を超えたことで、「AI分析を実行」ボタンを1回押すだけで
+1日の無料利用回数（20回）を一気に使い切ってしまい、AI相談が丸ごと使えなくなる
+という不具合が発生した。無料枠は「使える回数」に上限があるタイプだったため、
+登録スポットが増えるほど壊れやすくなる構造だった。そこで2026年7月26日にClaudeへ
+乗り換えた。Claudeには「1日◯回まで」のような回数の壁が無く、使った分だけ
+料金がかかる方式のため、登録スポットが増えても「ある日突然まったく使えなくなる」
+という壊れ方はしなくなった。
+</div>
+
+<h3>■ ログイン・写真・データはどこに保存されているの？</h3>
+
+<table>
+<tr><th>種類</th><th>保存場所</th><th>備考</th></tr>
+<tr><td>ログイン情報</td><td>Amazon Cognito</td><td>Googleアカウントでの認証を仲介。パスワードはこのアプリ側には保存されない</td></tr>
+<tr><td>釣り場・おすすめ・投稿・チャット履歴</td><td>DynamoDB</td><td>Amazonのデータベースサービス</td></tr>
+<tr><td>写真（釣果・釣り場）</td><td>Amazon S3</td><td>画像専用のストレージサービス</td></tr>
+<tr><td>アプリの画面（React）</td><td>CloudFront / Cloudflare</td><td>世界中に配信されるCDN経由で表示速度を確保</td></tr>
+</table>
+
+<h3>■ 使いすぎ・課金の暴走を防ぐ仕組み</h3>
+
+<div class="box">
+天気・地図・AIの一部は無料/低コストだが、AI（Claude）とGoogle地図検索は使った分だけ
+料金がかかる。友人同士で使う個人アプリのため、1人が使いすぎて想定外の高額請求に
+ならないよう、以下のような「1日◯回まで」という利用制限を設けている。
+</div>
+
+<table>
+<tr><th>機能</th><th>1日あたりの上限</th></tr>
+<tr><td>AI分析を実行</td><td>3回</td></tr>
+<tr><td>新スポットを探す（現在地から）</td><td>10回</td></tr>
+<tr><td>釣具店を探す</td><td>20回</td></tr>
+<tr><td>AI相談チャット</td><td>30件</td></tr>
+</table>
+
+<p>上限に達すると「本日の利用回数の上限に達しました」と表示され、翌日（世界標準時の
+日付が変わったタイミング）に自動でリセットされる。</p>
+
+<h2>5. 開発の裏話・小ネタ</h2>
+
+<ul>
+<li>釣り場のスコアは「魚がいそうな確率×0.4 ＋ 天気×0.2 ＋ 潮汐×0.2 － 距離のペナルティ － 費用のペナルティ」という数式で計算している（完璧な条件でも上限は80点になる設計）</li>
+<li>釣具店が「おすすめ釣り場」に混ざってしまう不具合があり、Googleの地図データが持つ「店舗かどうか」の情報を使って自動除外するよう修正した</li>
+<li>スマホのブラウザに「ホーム画面に追加」すると、アプリストアを経由せずアプリのように使える（PWAという仕組み）</li>
+<li>AWS側の利用料金は月$10を超えそうになると自動でメール通知が来るように設定されている</li>
+</ul>
+
+<hr>
+
+<div class="box">
+まとめ: このアプリは「天気・潮・地図の実データ」と「AIによる説明・チャット」を組み合わせて、
+「今日どこに釣りに行くか」という意思決定コストを下げることを目的に作られている。
+</div>
+
+</body>
+</html>
