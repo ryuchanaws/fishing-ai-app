@@ -183,6 +183,26 @@ score =
 - cost_penalty * 0.1
 </pre>
 
+<div class="box">
+【2026-07-26追加・reason使い回しによるGemini呼び出し削減】discover_spots.pyの新スポット探索や
+釣具店除外により、SpotsTableのスポット数が当初の5件から100件超に増えていた。generate_score.py
+は元々スポットごとに<b>必ず</b>Gemini APIを1回呼んで推薦理由(reason)を生成していたため、
+「AI分析を実行」を1回押すだけでスポット数と同じ回数（100回超）Gemini APIを呼ぶことになり、
+Gemini無料枠の1日あたり上限（20リクエスト/プロジェクト）を1回の実行で使い切ってしまう
+実害が発生した（AI相談が「回答の生成に失敗しました」を返す形で顕在化）。<br><br>
+対策として、<code>_should_regenerate_reason(existing, new_score)</code>を追加し、以下のいずれにも
+該当しないスポットは前回のreason文をそのまま使い回し、Geminiを呼ばないようにした:
+<ul>
+<li>そのスポットの推薦データが存在しない（初回）</li>
+<li>スコアが前回から<code>REASON_SCORE_CHANGE_THRESHOLD</code>（10.0）以上動いた</li>
+<li>前回の生成から<code>REASON_MAX_AGE_DAYS</code>（3日）以上経過している</li>
+</ul>
+スコア自体（天気・潮汐・DynamoDBのupdatedAt）は使い回し対象外で毎回必ず再計算・更新するため、
+フロント（useRecommendations.ts）の「全スポットのupdatedAtが実行開始時刻より新しくなったら完了」
+というポーリング判定には影響しない。結果として、2回目以降の「AI分析を実行」はスコアが
+大きく動いたスポットの分だけGeminiを呼ぶ形になり、通常は数回〜十数回程度で収まる想定。
+</div>
+
 ---
 
 <h3>adminRunAiBatch【2026-07-23 追記】</h3>

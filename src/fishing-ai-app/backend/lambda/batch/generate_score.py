@@ -12,9 +12,14 @@ POST /admin/run-ai-batch による手動実行で起動される。
         1のSpots取得より前に実行する。失敗してもスコア計算自体は継続する）
     1. Spots テーブルから全スポットを取得
     2. 各スポットの天気・潮汐スコアを取得（外部API or シミュレーション）
-    3. ルールベースのスコア式でスコアを計算
-    4. Gemini API で推薦理由（reason）を日本語生成
-    5. Recommendations テーブルに結果を保存
+    3. ルールベースのスコア式でスコアを計算（毎回・全スポット分実行）
+    4. Gemini API で推薦理由（reason）を日本語生成。ただし2026-07-26追加の最適化により、
+       スコアがほぼ変わっておらず（変化幅がREASON_SCORE_CHANGE_THRESHOLD未満）、かつ
+       前回生成からREASON_MAX_AGE_DAYS日以内のスポットは前回の文章を使い回し、
+       Geminiは呼ばない（スポット数の増加でGemini無料枠を1回の実行で使い切ってしまう
+       問題への対応。詳細設計.html参照）
+    5. Recommendations テーブルに結果を保存（reasonを使い回した場合もスコア・updatedAtは
+       毎回更新するため、フロントのポーリング完了判定には影響しない）
 
 Requirements:
     - 環境変数 SPOTS_TABLE / RECOMMENDATIONS_TABLE / GEMINI_API_KEY が設定済みであること
@@ -62,6 +67,15 @@ CORS = {
     "Access-Control-Allow-Headers": "Content-Type",
     "Access-Control-Allow-Methods": "POST,OPTIONS",
 }
+
+# 2026-07-26追加（コスト削減）: スポット数が増えたことで「AI分析を実行」1回が
+# スポット数と同じ回数だけGemini APIを呼ぶようになり、Geminiの無料枠（20回/日）を
+# 一撃で使い切ってしまう問題があった。スコアがほとんど変わっていない・最近生成済みの
+# スポットは理由文（reason）を使い回し、Gemini呼び出しを本当に必要な分だけに絞る。
+# スコア自体（天気・潮汐・DynamoDB保存）は毎回計算・更新するため、フロントのポーリング
+# （全スポットのupdatedAtが新しくなったかで完了判定）には影響しない。
+REASON_SCORE_CHANGE_THRESHOLD = 10.0  # スコアがこれ以上動いたら理由文を再生成する
+REASON_MAX_AGE_DAYS = 3  # スコアが動かなくても、これだけ日数が経ったら再生成する
 
 
 def _get_gemini_api_key() -> str:
@@ -284,6 +298,41 @@ def generate_reason(spot_name: str, fish_types: list[str], score: float,
         return f"{spot_name}は現在のコンディションが良好です。{', '.join(fish_types)}の釣果が見込めます。"
 
 
+def _should_regenerate_reason(existing: dict[str, Any] | None, new_score: float) -> bool:
+    """既存の推薦理由（reason）を使い回さず、Geminiで再生成すべきかを判定する（2026-07-26追加）。
+
+    以下のいずれかに該当する場合は再生成が必要:
+        - このスポットの推薦データがまだ無い（初回）
+        - 既存データにreasonが無い
+        - スコアがREASON_SCORE_CHANGE_THRESHOLD以上動いた
+        - 前回の更新からREASON_MAX_AGE_DAYS日以上経過している
+          （updatedAtが読めない/無い場合も安全側に倒して再生成する）
+
+    Args:
+        existing  (dict | None): RecommendationsTableの既存アイテム（無ければNone）
+        new_score (float): 今回計算したスコア
+
+    Returns:
+        bool: Geminiで理由文を再生成すべきならTrue
+    """
+    if not existing or not existing.get("reason"):
+        return True
+
+    prev_score = float(existing.get("score", 0))
+    if abs(new_score - prev_score) >= REASON_SCORE_CHANGE_THRESHOLD:
+        return True
+
+    prev_updated_at = existing.get("updatedAt")
+    if not prev_updated_at:
+        return True
+    try:
+        prev_dt = datetime.fromisoformat(prev_updated_at)
+    except ValueError:
+        return True
+    age_days = (datetime.now(timezone.utc) - prev_dt).total_seconds() / 86400
+    return age_days >= REASON_MAX_AGE_DAYS
+
+
 # ─── Main batch handler ───────────────────────────────────────────────
 def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """全スポットのスコア計算とAI推薦理由生成を実行するメインハンドラー。
@@ -333,10 +382,16 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
             "body": json.dumps({"message": "No spots found", "processedCount": 0}),
         }
 
+    # 既存の推薦データをspotIdごとの辞書にしておく（reason使い回し判定用。2026-07-26追加）
+    existing_recs: dict[str, dict[str, Any]] = {r["spotId"]: r for r in rec_table.scan()["Items"]}
+
     # スポットごとに直列処理する。並列化していないのは、Gemini API呼び出し
     # （1件あたり数秒）が支配的でDynamoDBの負荷は問題にならないため、
-    # 実装の単純さを優先している。5スポットで合計30秒前後かかる。
+    # 実装の単純さを優先している。2026-07-26のreason使い回し最適化後は、
+    # 大半のスポットでGeminiを呼ばなくなるため所要時間は実行のたびに変動する
+    # （スコアが大きく動いた/久しぶりのスポットが多いほど時間がかかる）。
     processed = 0
+    reason_regenerated = 0
     for spot in spots:
         # DynamoDBの必須項目はspotIdのみのため、他は欠損に備えてデフォルト値を設定
         spot_id:     str       = spot["spotId"]
@@ -353,9 +408,17 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         fish_prob     = estimate_fish_probability(spot_name, fish_types)
 
         # スコアはルールベースで決定論的に計算し、reason文だけAIに生成させる
-        score  = calc_score(fish_prob, weather_score, tide_score, distance_km, cost_yen)
-        reason = generate_reason(spot_name, fish_types, score,
-                                 weather_score, tide_score, distance_km)
+        score = calc_score(fish_prob, weather_score, tide_score, distance_km, cost_yen)
+
+        # reasonはスコアが大きく動いた/一定日数経過した場合のみGeminiで再生成し、
+        # そうでなければ前回の文章を使い回す（Gemini呼び出し削減。2026-07-26追加）
+        existing = existing_recs.get(spot_id)
+        if _should_regenerate_reason(existing, score):
+            reason = generate_reason(spot_name, fish_types, score,
+                                     weather_score, tide_score, distance_km)
+            reason_regenerated += 1
+        else:
+            reason = existing["reason"]
 
         # spotId をPKとして put_item するため、同じスポットの前回結果は上書きされる
         # （Recommendationsテーブルは履歴を持たず、スポットごとに最新1件のみ保持する設計）
@@ -374,9 +437,12 @@ def handler(event: dict[str, Any], context: Any) -> dict[str, Any]:
         processed += 1
         print(f"  Processed: {spot_name} → score={score:.1f}")
 
+    print(f"  Gemini reason calls: {reason_regenerated}/{processed} (残りは前回の文章を使い回し)")
+
     result: dict[str, Any] = {
         "status": "completed",
         "processedCount": processed,
+        "reasonRegeneratedCount": reason_regenerated,
         "completedAt": datetime.now(timezone.utc).isoformat(),
     }
     return {"statusCode": 200, "headers": CORS, "body": json.dumps(result)}
