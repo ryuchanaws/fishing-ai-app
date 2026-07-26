@@ -846,6 +846,52 @@ body  {
 }
 
 /* ===== SPOTS PAGE ===== */
+/* 検索・魚種絞り込みバー（2026-07-26追加） */
+.spots-filter-bar  {
+  margin: 14px 0;
+}
+
+.spots-search-row  {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.spots-search-icon  {
+  position: absolute;
+  left: 12px;
+  color: var(--text2);
+  pointer-events: none;
+}
+
+.spots-search-input  {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px 10px 36px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.spots-fish-filter  {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.fish-filter-chip  {
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.fish-filter-chip.active  {
+  background: var(--accent);
+  color: #fff;
+}
+
 .spots-list  {
   display: flex;
   flex-direction: column;
