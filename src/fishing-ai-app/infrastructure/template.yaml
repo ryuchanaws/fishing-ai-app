@@ -70,17 +70,21 @@ Resources:
       UsernameAttributes: [email]
 
   # Hosted UIのドメイン。
-  # 【2026-07-26変更】当初はアカウントIDを含めた"fishing-ai-app-<accountId>"だったが、
-  # ログイン画面のURLとして見栄えが良くないとの要望で、Cloudflare Workers側のサブドメイン
-  # （ryu-chan-fish.ryuchan-aws.workers.dev）とブランドを揃えた短いプレフィックスに変更した。
-  # Domainプロパティの変更はCloudFormationがリソースを置き換える（削除→作成）ため、
-  # UserPool本体・UserPoolClient・登録済みユーザーには影響しない。
-  # グローバルユニーク制約があるため、万一衝突する場合は別名に変更すること。
+  # 【2026-07-26 一旦revert】"ryu-chan-fish"という短いプレフィックスに変更しようとしたが、
+  # デプロイが失敗した: CloudFormationはDomainプロパティの変更を「新しいリソースを作成してから
+  # 古いものを削除する」置き換えとして実行しようとするが、Cognitoの実際のAPIは
+  # 1つのUserPoolに同時に2つのドメインを持てない（既存ドメインが付いたままだと
+  # 新ドメインのCreateUserPoolDomainが "Invalid request provided" で拒否される）。
+  # そのため一旦、動いていたアカウントID入りドメインに戻した。
+  # 短いドメインへの変更は「①ドメインを一旦削除するデプロイ→②新ドメインを追加するデプロイ」の
+  # 2段階が必要で、かつ①〜②の間はログインが機能しなくなる（Google Cloud Console側の
+  # リダイレクトURI変更とタイミングを合わせる必要もある）ため、ユーザーと調整の上で
+  # 別途タイミングを見て実施する（TODO）。
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       UserPoolId: !Ref UserPool
-      Domain: ryu-chan-fish
+      Domain: !Sub "fishing-ai-app-${AWS::AccountId}"
 
   # Googleを外部IdPとして連携。client_id/secretはSSMに事前登録したものをデプロイ時に動的解決する
   # （{{resolve:ssm...}}はCloudFormationの機能で、SAMのSSMParameterReadPolicyとは別物。
@@ -786,4 +790,4 @@ Outputs:
     Value: !Ref UserPoolClient
   CognitoHostedUiDomain:
     Description: "Cognito Hosted UIのドメイン。Google Cloud ConsoleのOAuthクライアントで承認済みリダイレクトURIに <この値>/oauth2/idpresponse を登録すること"
-    Value: !Sub "https://ryu-chan-fish.auth.${AWS::Region}.amazoncognito.com"
+    Value: !Sub "https://fishing-ai-app-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com"

@@ -423,13 +423,19 @@ Hosted UI独自の <code>/logout</code> エンドポイントへ直接遷移す�
 </div>
 
 <div class="box">
-【2026-07-26変更】Hosted UIのドメイン（<code>UserPoolDomain.Domain</code>）は当初
-アカウントID入り（<code>fishing-ai-app-&lt;AWSアカウントID&gt;.auth...</code>）だったが、
-ログイン画面のURLとして見栄えが良くないという理由で固定の短いプレフィックス
-（<code>ryu-chan-fish.auth...</code>、Cloudflare Workers側のサブドメインとブランドを揃えた）
-に変更した。Domainプロパティの変更はCloudFormationにリソース置き換え（削除→作成）をさせるため、
-UserPool本体・UserPoolClient・登録済みユーザーには影響しない。グローバルユニーク制約があるため
-プレフィックスが衝突した場合は別名に変更する必要がある。
+【2026-07-26・revert済み】Hosted UIのドメイン（<code>UserPoolDomain.Domain</code>）を、
+見栄えの良い短いプレフィックス（<code>ryu-chan-fish</code>、Cloudflare Workers側の
+サブドメインとブランドを揃えたもの）に変更しようとしたが、デプロイが失敗した。<br><br>
+原因：CloudFormationはDomainプロパティの変更を「新しいリソースを作成してから古いものを
+削除する」置き換えとして実行しようとするが、Cognitoの実際のAPIは1つのUserPoolに同時に
+2つのドメインを持てないため、新ドメインの<code>CreateUserPoolDomain</code>が
+<code>Invalid request provided</code>で拒否される。CloudFormation側は安全にロールバックし、
+スタックは元の状態（アカウントID入りドメイン: <code>fishing-ai-app-&lt;AWSアカウントID&gt;.auth...</code>）
+に復旧済み。<br><br>
+短いドメインへの変更には「①ドメインを一旦削除するデプロイ→②新ドメインを追加するデプロイ」の
+2段階が必要で、①〜②の間はログインが機能しなくなる（Google Cloud Console側のリダイレクトURI
+変更ともタイミングを合わせる必要がある）ため、ユーザーと調整の上で改めて実施する（現状は
+アカウントID入りドメインのまま据え置き）。
 </div>
 
 <h3>6.3 所有者チェック</h3>
