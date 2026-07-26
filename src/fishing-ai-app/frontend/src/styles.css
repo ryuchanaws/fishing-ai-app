@@ -883,6 +883,23 @@ body  {
   color: var(--text2);
 }
 
+/* 釣具店検索ページ（2026-07-26追加） */
+.tackle-search-form  {
+  display: flex;
+  gap: 8px;
+  margin: 14px 0;
+}
+
+.tackle-search-form .post-form-input  {
+  flex: 1;
+}
+
+.tackle-shop-address  {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
 /* ===== EMPTY & LOADING ===== */
 /* ローディングスピナー: 中央揃えで縦積み表示 */
 .loading-state  {

@@ -23,7 +23,8 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 
 <div class="box">
 本書は「どの画面が何をするか」「どのファイルがどのファイルを読んでいるか」を一覧できるようにするための
-リファレンス。2026-07-26時点の実装内容に基づく（認証・Geminiコスト管理・利用料アラート追加後）。
+リファレンス。2026-07-26時点の実装内容に基づく（認証・Geminiコスト管理・利用料アラート・
+ユーザー名・釣具店検索・AIチャットの実データグラウンディング追加後）。
 仕様の背景・意思決定理由は基本設計書.html／詳細設計.html／DEテーブル設計.html を参照。
 </div>
 
@@ -36,18 +37,20 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td><code>/</code></td><td>おすすめ</td><td><code>pages/TopPage.tsx</code></td><td>AIスコア順のTOP3・一覧表示、AI分析実行、現在地から新スポット探索、現在地基準の再ランキング</td></tr>
 <tr><td><code>/map</code></td><td>地図</td><td><code>pages/MapPage.tsx</code></td><td>Google Maps上に全スポットをスコア色分けピン表示</td></tr>
 <tr><td><code>/spots</code></td><td>スポット</td><td><code>pages/SpotsPage.tsx</code></td><td>全スポット一覧（スコア・魚種・ナビリンク）</td></tr>
+<tr><td><code>/tackle-shops</code></td><td>釣具店【2026-07-26追加】</td><td><code>pages/TackleShopsPage.tsx</code></td><td>釣具店の検索（現在地・キーワード）。スコアなし、DB保存なし</td></tr>
 <tr><td><code>/favorites</code></td><td>保存済み</td><td><code>pages/FavoritesPage.tsx</code></td><td>お気に入り登録済みスポットのみ表示</td></tr>
-<tr><td><code>/posts</code></td><td>釣果</td><td><code>pages/PostsPage.tsx</code></td><td>釣果投稿の一覧・作成・削除</td></tr>
-<tr><td><code>/chat</code></td><td>AI相談</td><td><code>pages/ChatPage.tsx</code></td><td>写真添付対応のAIチャット、会話履歴</td></tr>
+<tr><td><code>/posts</code></td><td>釣果</td><td><code>pages/PostsPage.tsx</code></td><td>釣果投稿の一覧・作成・削除（投稿者の表示名を表示）</td></tr>
+<tr><td><code>/chat</code></td><td>AI相談</td><td><code>pages/ChatPage.tsx</code></td><td>写真添付対応のAIチャット、会話履歴。実データ（Spots/Recommendations）に基づいた回答に対応【2026-07-26】</td></tr>
 </table>
 
 <div class="box">
 ルーティング定義は <code>App.tsx</code>。全ページ共通のヘッダーは <code>components/NavBar.tsx</code>
 （ロゴクリックで <code>/</code> に戻る、モバイルではラベル非表示、右端にログイン状態を表示）。<br>
 <b>ログイン不要（閲覧）</b>: おすすめ・地図・スポット・釣果投稿の一覧表示。<br>
-<b>ログイン必須（操作）</b>: お気に入り登録/削除、投稿の作成/削除、AI相談、AI分析実行、現在地から新スポット探索。
+<b>ログイン必須（操作）</b>: お気に入り登録/削除、投稿の作成/削除、AI相談、AI分析実行、現在地から新スポット探索、
+釣具店検索（Places API呼び出しのコスト保護のため）。
 未ログインでこれらを操作しようとするとCognito Hosted UI（Googleログイン画面）へ自動遷移するか
-（お気に入り・投稿作成・AI分析実行・新スポット探索）、ページ自体がログイン案内を表示する（AI相談）。
+（お気に入り・投稿作成・AI分析実行・新スポット探索・釣具店検索）、ページ自体がログイン案内を表示する（AI相談）。
 </div>
 
 ---
@@ -61,6 +64,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>TopPage.tsx</td><td>useRecommendations, useFavorites</td><td>RecommendationCard, AiBatchButton, SpotDiscoveryButton, DetailModal, NearbyModal</td></tr>
 <tr><td>MapPage.tsx</td><td>（なし。api/client を直接呼ぶ）</td><td>@vis.gl/react-google-maps（外部ライブラリ）</td></tr>
 <tr><td>SpotsPage.tsx</td><td>（なし。api/client を直接呼ぶ）</td><td>ImagePreviewPopover</td></tr>
+<tr><td>TackleShopsPage.tsx【2026-07-26追加】</td><td>useGeolocation</td><td>（なし。api/client の searchTackleShops を直接呼ぶ）</td></tr>
 <tr><td>FavoritesPage.tsx</td><td>useFavorites, useRecommendations</td><td>RecommendationCard, DetailModal</td></tr>
 <tr><td>PostsPage.tsx</td><td>usePosts</td><td>PostForm</td></tr>
 <tr><td>ChatPage.tsx</td><td>useChat</td><td>ChatInput, ChatHistoryPanel</td></tr>
@@ -75,8 +79,9 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>NearbyModal.tsx</td><td>TopPage</td><td>hooks/useGeolocation, utils/distance.ts, utils/score.ts, RecommendationCard</td></tr>
 <tr><td>ImagePreviewPopover.tsx</td><td>RecommendationCard, SpotsPage, DetailModal</td><td>hooks/useLongPress, api/wikipedia.ts</td></tr>
 <tr><td>PostForm.tsx</td><td>PostsPage</td><td>api/client（署名付きアップロード・投稿作成）</td></tr>
-<tr><td>ChatInput.tsx / ChatHistoryPanel.tsx</td><td>ChatPage</td><td>（propsで受けたコールバックのみ。API直呼びなし）</td></tr>
+<tr><td>ChatInput.tsx / ChatHistoryPanel.tsx</td><td>ChatPage</td><td>（propsで受けたコールバックのみ。API直呼びなし）ChatInputのみ2026-07-26追加のhooks/useGeolocationで現在地共有トグルを実装</td></tr>
 <tr><td>AiBatchButton.tsx / SpotDiscoveryButton.tsx</td><td>TopPage</td><td>SpotDiscoveryButtonのみ api/client（runSpotDiscovery）を直接呼ぶ</td></tr>
+<tr><td>ProfileModal.tsx【2026-07-26追加】</td><td>NavBar</td><td>（propsで受けたコールバックのみ。API直呼びなし）</td></tr>
 </table>
 
 <h3>2.3 フック → APIクライアント</h3>
@@ -86,8 +91,9 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>useRecommendations.ts</td><td>getRecommendations, runAiBatch（未ログイン時はrunAiBatch実行前にsigninRedirect）</td></tr>
 <tr><td>useFavorites.ts</td><td>getFavorites, addFavorite, removeFavorite（2026-07-26: userId引数を廃止。未ログイン時はfetchせず空配列、トグル時はsigninRedirect）</td></tr>
 <tr><td>usePosts.ts</td><td>getPosts, createPost, deletePost（削除失敗時はdeleteErrorに反映）</td></tr>
-<tr><td>useChat.ts</td><td>sendChatMessage, getChatHistory, getChat, deleteChat, getPresignedUploadUrl, uploadImageToS3（429応答はレート制限メッセージとして表示）</td></tr>
-<tr><td>useGeolocation.ts</td><td>（なし。navigator.geolocation をラップするのみ）</td></tr>
+<tr><td>useChat.ts</td><td>sendChatMessage, getChatHistory, getChat, deleteChat, getPresignedUploadUrl, uploadImageToS3（429応答はレート制限メッセージとして表示。2026-07-26: sendChatMessageにlat/lngを渡せるようになった）</td></tr>
+<tr><td>useProfile.ts【2026-07-26追加】</td><td>getMyProfile, updateMyProfile（未ログイン時はfetchしない。NavBarから使われる）</td></tr>
+<tr><td>useGeolocation.ts</td><td>（なし。navigator.geolocation をラップするのみ。TopPage/SpotDiscoveryButton/ChatInput/TackleShopsPageから使われる）</td></tr>
 <tr><td>useLongPress.ts</td><td>（なし。hover/長押し検知のみのUIフック）</td></tr>
 </table>
 
@@ -131,17 +137,19 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>getRecommendationsHandler</td><td>GET /recommendations</td><td>不要</td><td>Recommendations（読）, Spots（読、結合用）</td></tr>
 <tr><td>getSpotsHandler</td><td>GET /spots</td><td>不要</td><td>Spots（読）</td></tr>
 <tr><td>putSpotImageHandler</td><td>PUT /spots/{spotId}/image</td><td>必須</td><td>Spots（更新）</td></tr>
-<tr><td>getPostsHandler</td><td>GET /posts</td><td>不要</td><td>Posts（読）</td></tr>
+<tr><td>getPostsHandler</td><td>GET /posts</td><td>不要</td><td>Posts（読）, Users（読、投稿者の表示名を結合。2026-07-26追加）</td></tr>
 <tr><td>postPostsHandler</td><td>POST /posts</td><td>必須</td><td>Posts（作成。userIdは_get_user_id(event)で取得しリクエストボディの値は無視）</td></tr>
 <tr><td>deletePostHandler</td><td>DELETE /posts/{postId}</td><td>必須</td><td>Posts（削除。postId単一PKで所有者情報がキーに無いため、削除前にget_itemして自分の投稿か明示チェック。他人の投稿は403）</td></tr>
 <tr><td>getFavoritesHandler</td><td>GET /favorites</td><td>必須</td><td>Favorites（読）, Spots（読、結合用）</td></tr>
 <tr><td>postFavoritesHandler</td><td>POST /favorites</td><td>必須</td><td>Favorites（作成）</td></tr>
 <tr><td>deleteFavoritesHandler</td><td>DELETE /favorites/{spotId}</td><td>必須</td><td>Favorites（削除）</td></tr>
 <tr><td>postPresignUploadHandler</td><td>POST /uploads/presign</td><td>必須</td><td>S3 UploadsBucket（署名付きPOSTフォーム発行のみ）</td></tr>
-<tr><td>postChatHandler</td><td>POST /chat</td><td>必須</td><td>Chats（読み書き）, Usage（1日あたり利用回数のアトミック加算）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
+<tr><td>postChatHandler</td><td>POST /chat</td><td>必須</td><td>Chats（読み書き）, Usage（1日あたり利用回数のアトミック加算）, Spots・Recommendations（読、実データグラウンディング用。2026-07-26追加）, S3（画像読み取り）, SSM（Geminiキー）</td></tr>
 <tr><td>getChatsHandler</td><td>GET /chats</td><td>必須</td><td>Chats（読、軽量版）</td></tr>
 <tr><td>getChatHandler</td><td>GET /chats/{chatId}</td><td>必須</td><td>Chats（読、全メッセージ）</td></tr>
 <tr><td>deleteChatHandler</td><td>DELETE /chats/{chatId}</td><td>必須</td><td>Chats（削除）</td></tr>
+<tr><td>getMyProfileHandler【2026-07-26追加】</td><td>GET /me</td><td>必須</td><td>Users（読）。未登録でも404にせずdisplayName:nullで200を返す</td></tr>
+<tr><td>putMyProfileHandler【2026-07-26追加】</td><td>PUT /me</td><td>必須</td><td>Users（作成/更新。表示名は1〜30文字でバリデーション）</td></tr>
 </table>
 
 <div class="box">
@@ -159,8 +167,9 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><th>ファイル</th><th>役割</th><th>他ファイルとの関係</th></tr>
 <tr><td>batch_common.py</td><td>DynamoDB/SSM/HTTP GETの共有ヘルパー</td><td>generate_score.py・discover_spots.py 両方から import される（循環import回避のため切り出し）</td></tr>
 <tr><td>generate_score.py</td><td>generateSpotScoreBatch本体。天気/潮汐取得→スコア計算→Gemini推薦理由生成→Recommendations保存</td><td>batch_common を import。handler冒頭で discover_spots.run_discovery() を呼ぶ（新スポット探索も内包）</td></tr>
-<tr><td>discover_spots.py</td><td>Google Places APIで新規スポットを探索しSpotsへ追加する中核ロジック（run_discovery）</td><td>batch_common を import。generate_score.py から呼ばれる他、discoverSpotsBatch Lambdaとしても単独稼働</td></tr>
+<tr><td>discover_spots.py</td><td>Google Places APIで新規スポットを探索しSpotsへ追加する中核ロジック（run_discovery）。2026-07-26: Placesの<code>types</code>に"store"を含む候補（釣具店等）を除外するようになった</td><td>batch_common を import。generate_score.py から呼ばれる他、discoverSpotsBatch Lambdaとしても単独稼働。tackle_shops.py からも search_places/haversine_km が import される</td></tr>
 <tr><td>admin_trigger.py</td><td>フロントのボタンから対象バッチをEvent(非同期)invokeする汎用ラッパー</td><td>環境変数 BATCH_FUNCTION_NAME により、同一コードが adminRunAiBatch と adminRunSpotDiscovery の2つのLambdaとして再利用されている</td></tr>
+<tr><td>tackle_shops.py【2026-07-26追加】</td><td>釣具店を検索して返すだけのLambda（DB書き込みなし・スコアなし）</td><td>discover_spots.py の search_places/haversine_km、batch_common の get_ssm_parameter を import。同じ../backend/lambda/batch/パッケージに配置</td></tr>
 </table>
 
 <div class="box">
@@ -175,6 +184,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>DiscoverSpotsBatch</td><td>discover_spots.handler</td><td>AdminRunSpotDiscoveryFunction経由のみ（自動スケジュールなし）</td></tr>
 <tr><td>AdminRunAiBatchFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=GenerateSpotScoreBatch）</td><td>POST /admin/run-ai-batch（認証必須）</td></tr>
 <tr><td>AdminRunSpotDiscoveryFunction</td><td>admin_trigger.handler（BATCH_FUNCTION_NAME=DiscoverSpotsBatch）</td><td>POST /admin/run-spot-discovery（認証必須）</td></tr>
+<tr><td>SearchTackleShopsFunction【2026-07-26追加】</td><td>tackle_shops.handler</td><td>POST /tackle-shops/search（認証必須。Places API課金保護のため）</td></tr>
 </table>
 
 <div class="box">
@@ -195,6 +205,7 @@ code { background:#eee; padding:1px 4px; border-radius:3px; }
 <tr><td>fishing-posts</td><td>PostsTable</td><td>postId (PK)</td><td>postPostsHandler / deletePostHandler</td></tr>
 <tr><td>fishing-chats</td><td>ChatsTable</td><td>userId (PK) + chatId (SK)</td><td>postChatHandler / deleteChatHandler</td></tr>
 <tr><td>fishing-usage</td><td>UsageTable【2026-07-26追加】</td><td>userId (PK) + dateKey (SK, 例: "chat#2026-07-26")</td><td>postChatHandler内の_check_and_increment_daily_usage（ADDによるアトミック加算）。TTL（expiresAt）で翌々日ごろ自動削除</td></tr>
+<tr><td>fishing-users</td><td>UsersTable【2026-07-26追加】</td><td>userId (PK)</td><td>putMyProfileHandler（表示名の作成/更新）。getPostsHandlerがscanして投稿者名の結合に使う</td></tr>
 </table>
 
 <div class="box">
@@ -233,6 +244,19 @@ ChatInput.tsx（写真選択 + 送信）
    → Chatsテーブルへ保存 → 応答を同期的に返却
 </pre>
 
+<h3>5.3「近くの釣り場は？」とAI相談で聞いたとき（2026-07-26追加）</h3>
+<pre>
+ChatInput.tsx（現在地共有トグルON + 送信）
+ → useChat.ts の send()（lat/lngを含めてsendChatMessage呼び出し）
+ → POST /chat
+ → postChatHandler（handlers.py）
+   → _build_spots_context(lat, lng) がSpots・Recommendationsをscan→結合→
+     現在地からの距離（haversine）で近い順にソート→上位40件をテキスト化
+   → _generate_chat_reply() のsystem_instructionに上記テキストを埋め込む
+     （「データに無い場所は作り出さない」という指示も併記）
+   → Geminiが実データの中から回答を組み立てる
+</pre>
+
 ---
 
 <h2>6. 使用サービスとコストの目安（2026-07-26追加）</h2>
@@ -247,7 +271,7 @@ ChatInput.tsx（写真選択 + 送信）
 <tr><th>サービス</th><th>課金対象</th><th>個人〜友人規模での目安</th></tr>
 <tr><td>Lambda</td><td>呼び出し回数・実行時間</td><td>無料枠内（月100万回・40万GB秒まで無料）</td></tr>
 <tr><td>API Gateway (REST)</td><td>APIコール数</td><td>新規アカウントは12ヶ月無料枠、以降は$3.50/百万回。この規模ならごく僅か</td></tr>
-<tr><td>DynamoDB（6テーブル）</td><td>読み書きリクエスト数・ストレージ</td><td>無料枠+低ボリュームでごく僅か</td></tr>
+<tr><td>DynamoDB（7テーブル）</td><td>読み書きリクエスト数・ストレージ</td><td>無料枠+低ボリュームでごく僅か</td></tr>
 <tr><td>S3（静的ホスティング＋アップロード）</td><td>ストレージ・リクエスト数</td><td>数百円未満想定</td></tr>
 <tr><td>CloudFront</td><td>データ転送量</td><td>12ヶ月無料枠（1TB/月）、以降も低ボリュームなら僅か</td></tr>
 <tr><td>SSM Parameter Store</td><td>Standard利用なら無料</td><td>無料</td></tr>

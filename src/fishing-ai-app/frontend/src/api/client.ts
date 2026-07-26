@@ -13,6 +13,8 @@ import type {
   UploadPresignResponse,
   Chat,
   ChatSummary,
+  Profile,
+  TackleShop,
 } from "../types";
 
 /**
@@ -254,12 +256,16 @@ export const uploadImageToS3 = async (
  * @param {string} [input.chatId] - 既存チャットへの追記の場合に指定（省略時は新規チャット作成）
  * @param {string} input.message - 送信するメッセージ本文
  * @param {string} [input.imageUrl] - 添付画像のURL（uploadImageToS3完了後のpublicUrlを渡す）
+ * @param {number} [input.lat] - 現在地の緯度（省略可。「近くの釣り場」の案内精度を上げる。2026-07-26追加）
+ * @param {number} [input.lng] - 現在地の経度（省略可）
  * @returns {Promise<{chatId: string; reply: string; updatedAt: string}>} AIの応答
  */
 export const sendChatMessage = async (input: {
   chatId?: string;
   message: string;
   imageUrl?: string;
+  lat?: number;
+  lng?: number;
 }): Promise<{ chatId: string; reply: string; updatedAt: string }> => {
   const { data } = await api.post("/chat", input, { timeout: 28000 });
   return data;
@@ -294,4 +300,47 @@ export const getChat = async (chatId: string): Promise<Chat> => {
  */
 export const deleteChat = async (chatId: string): Promise<void> => {
   await api.delete(`/chats/${chatId}`);
+};
+
+/**
+ * ログイン中ユーザー自身のプロフィール（表示名）を取得する（Cognito認証必須、2026-07-26追加）。
+ *
+ * @returns {Promise<Profile>} プロフィール（displayName未設定時はnull）
+ */
+export const getMyProfile = async (): Promise<Profile> => {
+  const { data } = await api.get("/me");
+  return data;
+};
+
+/**
+ * 表示名を設定・更新する（Cognito認証必須）。
+ *
+ * @param {string} displayName - 新しい表示名（1〜30文字）
+ * @returns {Promise<{userId: string; displayName: string}>}
+ */
+export const updateMyProfile = async (
+  displayName: string
+): Promise<{ userId: string; displayName: string }> => {
+  const { data } = await api.put("/me", { displayName });
+  return data;
+};
+
+/**
+ * 釣具店を検索する（Cognito認証必須。Places API呼び出しのコスト保護のため）。
+ * lat/lngを指定すると現在地からの近傍検索＋距離順、keywordを指定するとテキスト検索になる
+ * （2026-07-26追加。おすすめ・新スポット探索から釣具店を除外した代わりの専用検索）。
+ *
+ * @param {object} params
+ * @param {number} [params.lat] - 現在地の緯度（省略可）
+ * @param {number} [params.lng] - 現在地の経度（省略可）
+ * @param {string} [params.keyword] - 地名・県名等のテキスト検索キーワード（省略可）
+ * @returns {Promise<TackleShop[]>} 検索結果（最大20件）
+ */
+export const searchTackleShops = async (params: {
+  lat?: number;
+  lng?: number;
+  keyword?: string;
+}): Promise<TackleShop[]> => {
+  const { data } = await api.post("/tackle-shops/search", params);
+  return data.items ?? data;
 };

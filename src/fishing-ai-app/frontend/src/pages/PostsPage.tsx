@@ -113,7 +113,9 @@ export const PostsPage = () => {
                     ))}
                   </div>
                 )}
-                <p className="post-date">{new Date(post.createdAt).toLocaleString("ja-JP")}</p>
+                <p className="post-date">
+                  {post.authorName ?? "匿名"} ・ {new Date(post.createdAt).toLocaleString("ja-JP")}
+                </p>
               </div>
             </div>
           ))}

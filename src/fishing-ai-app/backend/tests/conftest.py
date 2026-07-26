@@ -29,6 +29,7 @@ os.environ.setdefault("FAVORITES_TABLE", "test-fishing-favorites")
 os.environ.setdefault("POSTS_TABLE", "test-fishing-posts")
 os.environ.setdefault("CHATS_TABLE", "test-fishing-chats")
 os.environ.setdefault("USAGE_TABLE", "test-fishing-usage")
+os.environ.setdefault("USERS_TABLE", "test-fishing-users")
 os.environ.setdefault("UPLOADS_BUCKET", "test-fishing-ai-app-uploads")
 # moto用のダミー認証情報を強制的に上書きする（setdefaultではなく代入）。
 # 実行環境（このプロジェクトのAWS CLI用など）に本物の認証情報が環境変数として

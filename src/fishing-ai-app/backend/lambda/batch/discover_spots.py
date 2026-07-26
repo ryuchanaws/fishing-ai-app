@@ -58,6 +58,11 @@ DEFAULT_BASE_LNG = 139.767
 # 重複とみなす距離のしきい値（メートル）
 DUPLICATE_THRESHOLD_M = 300
 
+# 除外するGoogle Places のtype（2026-07-26追加）。
+# "釣り"クエリだと釣具店（タックルショップ）が混ざり込むため、小売店を示す"store"を含む候補は除外する
+# （釣り場自体は通常 point_of_interest/park/natural_feature 等で"store"を持たない）
+EXCLUDED_PLACE_TYPES = {"store"}
+
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Headers": "Content-Type",
@@ -116,6 +121,7 @@ def search_places(query: str, api_key: str, location_bias: Optional[dict[str, fl
                 "lat": float(loc["lat"]),
                 "lng": float(loc["lng"]),
                 "address": r.get("formatted_address", ""),
+                "types": r.get("types", []),
             })
         return results
 
@@ -194,6 +200,11 @@ def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str,
     added, skipped = 0, 0
 
     for c in candidates.values():
+        # 釣具店等の小売店は釣り場ではないため除外する（2026-07-26追加）
+        if EXCLUDED_PLACE_TYPES & set(c.get("types", [])):
+            skipped += 1
+            continue
+
         # 既存スポットと近傍（300m以内）なら重複とみなしてスキップ
         is_duplicate = any(
             haversine_km(c["lat"], c["lng"], elat, elng) * 1000 < DUPLICATE_THRESHOLD_M

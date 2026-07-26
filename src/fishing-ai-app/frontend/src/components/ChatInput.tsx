@@ -5,15 +5,20 @@
  * 2通りで行えるようにする（別々の機能に分けず、チャット入力の一部として統合）。
  */
 
-import { useRef, useState } from "react";
-import { Send, Image as ImageIcon, Camera, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Send, Image as ImageIcon, Camera, X, LocateFixed, Loader2 } from "lucide-react";
+import { useGeolocation } from "../hooks/useGeolocation";
 
 /**
  * ChatInput コンポーネントの Props。
  */
 interface ChatInputProps {
-  /** メッセージ送信時に呼び出す関数（テキスト + 任意で画像ファイル） */
-  onSend: (text: string, file?: File) => void;
+  /**
+   * メッセージ送信時に呼び出す関数。
+   * location は現在地共有トグルがONの場合のみ渡される（省略可、2026-07-26追加。
+   * 「近くの釣り場は？」のような質問にAIが実データで答える精度を上げるために使う）
+   */
+  onSend: (text: string, file?: File, location?: { lat: number; lng: number }) => void;
   /** 送信中フラグ（true の間は入力・送信ボタンを無効化） */
   sending: boolean;
 }
@@ -25,6 +30,8 @@ interface ChatInputProps {
  * - 「撮影する」ボタン: `<input type="file" capture="environment">` でその場でカメラを起動する
  *   （スマホのブラウザではcapture属性によりカメラアプリが直接開く）
  * - 選択した画像は送信前にサムネイルでプレビューし、送信前に取り消せる
+ * - 現在地共有トグル（2026-07-26追加）: ONにすると以後の送信にlat/lngが付き、
+ *   AIが「近くの釣り場」等の質問に実データ＋実距離で答えられるようになる（任意・オフが初期状態）
  *
  * @param {ChatInputProps} props
  * @returns {JSX.Element} チャット入力欄
@@ -33,9 +40,30 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [locationEnabled, setLocationEnabled] = useState(false);
+  const geo = useGeolocation();
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  /** 現在地取得に初めて成功したら自動でトグルをONにする */
+  useEffect(() => {
+    if (geo.status === "granted") {
+      setLocationEnabled(true);
+    }
+  }, [geo.status]);
+
+  /**
+   * 現在地共有トグルのクリック処理。
+   * まだ位置情報を取得していなければリクエストし、取得済みならON/OFFを切り替える。
+   */
+  const handleToggleLocation = () => {
+    if (geo.status === "granted") {
+      setLocationEnabled((prev) => !prev);
+    } else {
+      geo.request();
+    }
+  };
 
   /**
    * ファイル選択時にプレビュー用のオブジェクトURLを生成する。
@@ -62,7 +90,8 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
    */
   const handleSend = () => {
     if (!text.trim() && !file) return;
-    onSend(text.trim(), file ?? undefined);
+    const location = locationEnabled && geo.position ? geo.position : undefined;
+    onSend(text.trim(), file ?? undefined, location);
     setText("");
     clearImage();
   };
@@ -113,6 +142,18 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
           style={{ display: "none" }}
           onChange={(e) => handleFileSelect(e.target.files?.[0])}
         />
+
+        {/* 現在地共有トグル: ONの間は送信のたびに現在地をAIへの参考情報として付与する */}
+        <button
+          className="icon-btn"
+          onClick={handleToggleLocation}
+          title={locationEnabled ? "現在地を共有中（タップで解除）" : "現在地を共有して質問する"}
+          aria-label="現在地の共有を切り替え"
+          disabled={sending || geo.status === "loading"}
+          style={locationEnabled ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
+        >
+          {geo.status === "loading" ? <Loader2 size={18} className="spin" /> : <LocateFixed size={18} />}
+        </button>
 
         <input
           className="chat-text-input"

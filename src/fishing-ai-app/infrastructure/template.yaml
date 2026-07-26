@@ -45,6 +45,8 @@ Globals:
         CHATS_TABLE: !Ref ChatsTable
         # 1ユーザー・1日あたりのAI呼び出し回数を記録するテーブル（Geminiコスト管理用、2026-07-26追加）
         USAGE_TABLE: !Ref UsageTable
+        # ユーザーが登録した表示名を保存するテーブル（2026-07-26追加）
+        USERS_TABLE: !Ref UsersTable
         # ユーザー投稿・スポット写真のアップロード先バケット名
         UPLOADS_BUCKET: !Ref UploadsBucket
         # Gemini API キーを SSM パラメータストアから動的に取得
@@ -67,12 +69,18 @@ Resources:
       AutoVerifiedAttributes: [email]
       UsernameAttributes: [email]
 
-  # Hosted UIのドメイン。グローバルユニーク制約があるためアカウントIDを含めて衝突を避ける
+  # Hosted UIのドメイン。
+  # 【2026-07-26変更】当初はアカウントIDを含めた"fishing-ai-app-<accountId>"だったが、
+  # ログイン画面のURLとして見栄えが良くないとの要望で、Cloudflare Workers側のサブドメイン
+  # （ryu-chan-fish.ryuchan-aws.workers.dev）とブランドを揃えた短いプレフィックスに変更した。
+  # Domainプロパティの変更はCloudFormationがリソースを置き換える（削除→作成）ため、
+  # UserPool本体・UserPoolClient・登録済みユーザーには影響しない。
+  # グローバルユニーク制約があるため、万一衝突する場合は別名に変更すること。
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
     Properties:
       UserPoolId: !Ref UserPool
-      Domain: !Sub "fishing-ai-app-${AWS::AccountId}"
+      Domain: ryu-chan-fish
 
   # Googleを外部IdPとして連携。client_id/secretはSSMに事前登録したものをデプロイ時に動的解決する
   # （{{resolve:ssm...}}はCloudFormationの機能で、SAMのSSMParameterReadPolicyとは別物。
@@ -219,6 +227,17 @@ Resources:
         AttributeName: expiresAt
         Enabled: true
 
+  # ユーザーが自分で設定する表示名（ユーザー名）を保存するテーブル（2026-07-26追加）
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: fishing-users
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: userId, AttributeType: S }
+      KeySchema:
+        - { AttributeName: userId, KeyType: HASH }
+
   # ==============================================================
   # S3 バケット（スポット写真・投稿写真のアップロード先）
   # 書き込みは署名付きURL経由のみ（バケットポリシーは GetObject のみ許可）
@@ -301,6 +320,8 @@ Resources:
       CodeUri: ../backend/lambda/api/
       Policies:
         - DynamoDBReadPolicy: { TableName: !Ref PostsTable }
+        # 投稿者の表示名を結合するため（2026-07-26追加）
+        - DynamoDBReadPolicy: { TableName: !Ref UsersTable }
       Events:
         Api:
           Type: Api
@@ -461,6 +482,9 @@ Resources:
         - DynamoDBCrudPolicy: { TableName: !Ref ChatsTable }
         # 1日あたりのレート制限カウンタ読み書き用（2026-07-26追加）
         - DynamoDBCrudPolicy: { TableName: !Ref UsageTable }
+        # AI相談を実データでグラウンディングするため（2026-07-26追加）
+        - DynamoDBReadPolicy: { TableName: !Ref SpotsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref RecommendationsTable }
       Events:
         Api:
           Type: Api
@@ -525,6 +549,44 @@ Resources:
             RestApiId: !Ref Api
             Path: /chats/{chatId}
             Method: DELETE
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # GET /me — ログイン中ユーザー自身のプロフィール（表示名）を返す（2026-07-26追加）
+  GetMyProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: getMyProfileHandler
+      Handler: handlers.getMyProfileHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref UsersTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /me
+            Method: GET
+            Auth:
+              Authorizer: CognitoAuthorizer
+
+  # PUT /me — 表示名を設定・更新する（2026-07-26追加）
+  PutMyProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: putMyProfileHandler
+      Handler: handlers.putMyProfileHandler
+      CodeUri: ../backend/lambda/api/
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref UsersTable }
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /me
+            Method: PUT
             Auth:
               Authorizer: CognitoAuthorizer
 
@@ -646,6 +708,31 @@ Resources:
             Auth:
               Authorizer: CognitoAuthorizer
 
+  # POST /tackle-shops/search — 釣具店を検索する（DB書き込みなし・スコアなし、2026-07-26追加）
+  # discover_spots.py の search_places/haversine_km を import して再利用するため
+  # 同じ ../backend/lambda/batch/ パッケージに配置している
+  SearchTackleShopsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: searchTackleShops
+      Handler: tackle_shops.handler
+      CodeUri: ../backend/lambda/batch/
+      Timeout: 15
+      Policies:
+        - SSMParameterReadPolicy:
+            # 先頭スラッシュを付けない（付けると parameter//... の二重スラッシュARNになりAccessDenied）
+            ParameterName: fishing-ai/google-places-api-key
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            RestApiId: !Ref Api
+            Path: /tackle-shops/search
+            Method: POST
+            Auth:
+              # Places API呼び出しは課金を伴うため未ログインでは呼べないようにする
+              Authorizer: CognitoAuthorizer
+
   # ==============================================================
   # AWS利用料アラート（月$10、80%/100%到達時にメール通知。2026-07-26追加）
   # Gemini/Places等のGoogle Cloud側課金はAWS Budgetsでは検知できないため対象外
@@ -699,4 +786,4 @@ Outputs:
     Value: !Ref UserPoolClient
   CognitoHostedUiDomain:
     Description: "Cognito Hosted UIのドメイン。Google Cloud ConsoleのOAuthクライアントで承認済みリダイレクトURIに <この値>/oauth2/idpresponse を登録すること"
-    Value: !Sub "https://fishing-ai-app-${AWS::AccountId}.auth.${AWS::Region}.amazoncognito.com"
+    Value: !Sub "https://ryu-chan-fish.auth.${AWS::Region}.amazoncognito.com"
