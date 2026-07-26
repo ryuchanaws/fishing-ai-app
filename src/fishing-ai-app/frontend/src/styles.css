@@ -222,10 +222,14 @@ body  {
   margin-bottom: 28px;
 }
 
-/* ボタン + 結果メッセージの縦並び */
+/* ボタン + 結果メッセージの縦並び。
+   align-items省略時のデフォルト(stretch)だと、下の結果メッセージが長いときに
+   ボタン幅がそれに釣られて伸びてしまう（2026-07-26修正: flex-startにして
+   ボタンとメッセージそれぞれが自分のコンテンツ幅を保つようにした） */
 .ai-batch-wrapper  {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
 }
 
@@ -246,6 +250,8 @@ body  {
   cursor: pointer;
   box-shadow: 0 4px 20px rgba(0,200,150,0.3);
   transition: all 0.2s;
+  white-space: nowrap;
+  flex-shrink: 0;
 
 }
 
@@ -269,7 +275,9 @@ body  {
   transform: none;
 }
 
-/* バッチ実行結果メッセージ（完了 / エラー / タイムアウト） */
+/* バッチ実行結果メッセージ（完了 / エラー / タイムアウト）。
+   max-widthで折り返させることで、長いメッセージが横に伸びて隣のボタンの
+   レイアウトを崩さないようにしている（2026-07-26追加） */
 .batch-status  {
 
   display: inline-flex;
@@ -278,6 +286,8 @@ body  {
   font-size: 13px;
   padding: 6px 12px;
   border-radius: var(--radius-sm);
+  max-width: 260px;
+  white-space: normal;
 
 }
 
