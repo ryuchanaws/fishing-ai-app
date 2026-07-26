@@ -334,13 +334,12 @@ body  {
 }
 
 /* ===== GRIDS ===== */
-/* TOP3 グリッド: 最小 280px で自動折り返し */
+/* TOP3リスト。2026-07-26変更: 元は3列グリッド(最小280px)だったが、TOP3のヒーロー写真が
+   窮屈だったため、その他スポット一覧(.rec-list)と同じ縦1列・フル幅レイアウトに変更した */
 .top3-grid  {
-
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-
 }
 
 /* その他スポット・お気に入り: 縦1列リスト */
@@ -376,7 +375,9 @@ body  {
 .rec-card-photo  {
   display: block;
   width: calc(100% + 36px);
-  height: 140px;
+  /* 2026-07-26: カードがフル幅になったため、140px固定だと間延びして見えるので
+     高さを上げた（幅に対する比率で見た目のバランスを取る） */
+  height: 220px;
   margin: -18px -18px 14px -18px;
   object-fit: cover;
   border-radius: var(--radius) var(--radius) 0 0;
@@ -1421,11 +1422,6 @@ body  {
   .main-content  {
     padding: 12px;
     padding-top: 74px;
-  }
-
-  /* TOP3 グリッドを1列に変更 */
-  .top3-grid  {
-    grid-template-columns: 1fr;
   }
 
   /* NavBar のアプリ名を非表示にしてアイコンのみ表示 */
