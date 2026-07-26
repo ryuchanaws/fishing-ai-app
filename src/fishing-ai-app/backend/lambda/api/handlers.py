@@ -18,6 +18,8 @@ Endpoints:
     GET    /chats
     GET    /chats/{chatId}
     DELETE /chats/{chatId}
+    GET    /me
+    PUT    /me
 
 Requirements:
     - 環境変数にDynamoDBテーブル名が設定済み
@@ -25,6 +27,7 @@ Requirements:
 """
 
 import json
+import math
 import os
 import uuid
 import logging
@@ -58,6 +61,8 @@ FAVORITES_TABLE = os.environ.get("FAVORITES_TABLE", "fishing-favorites")
 POSTS_TABLE = os.environ.get("POSTS_TABLE", "fishing-posts")
 CHATS_TABLE = os.environ.get("CHATS_TABLE", "fishing-chats")
 USAGE_TABLE = os.environ.get("USAGE_TABLE", "fishing-usage")
+# ユーザーが自分で設定する表示名（ユーザー名）を保存するテーブル（2026-07-26追加）
+USERS_TABLE = os.environ.get("USERS_TABLE", "fishing-users")
 
 # ─────────────────────────────
 # S3（スポット写真・投稿写真のアップロード先）
@@ -277,16 +282,26 @@ def getPostsHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     """GET /posts — 投稿一覧を新しい順で返す。
 
     PostsTable を全件スキャンし、createdAt の降順（新しい順）にソートして返す。
+    各投稿にはUsersTableと突き合わせた投稿者の表示名（authorName）を付与する
+    （2026-07-26追加。投稿時点でフリーズさせず、表示のたびに最新の表示名を反映する。
+    SpotsTable/FavoritesTableの結合と同じ「NoSQLはJOINできないのでアプリ側で辞書を作って結合」パターン。
+    表示名未設定のユーザーは"匿名"として表示する）。
 
     Args:
         event (dict[str, Any]): API Gateway イベントオブジェクト（本エンドポイントでは未使用）
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
-        dict[str, Any]: statusCode=200、body に {"items": [...]}（createdAt 降順）
+        dict[str, Any]: statusCode=200、body に {"items": [...]}（createdAt 降順、各itemにauthorName付き）
     """
     table = _get_table(POSTS_TABLE)
+    table_u = _get_table(USERS_TABLE)
     items = table.scan().get("Items", [])
+
+    users = {u["userId"]: u for u in table_u.scan().get("Items", [])}
+    for item in items:
+        user = users.get(item.get("userId"))
+        item["authorName"] = (user.get("displayName") if user else None) or "匿名"
 
     items_sorted = sorted(
         items,
@@ -664,16 +679,88 @@ def _fetch_image_bytes(image_url: str) -> tuple[bytes, str] | None:
         return None
 
 
-def _generate_chat_reply(history: list[dict[str, Any]], message: str, image_url: str | None) -> str:
+def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """2点間の距離をhaversine公式でkm単位で算出する（discover_spots.pyと同じ実装）。"""
+    r = 6371.0
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlambda / 2) ** 2
+    return 2 * r * math.asin(math.sqrt(a))
+
+
+# チャットのプロンプトに埋め込むスポット数の上限。スポットが増えてもGemini呼び出しの
+# トークン量（＝コスト）が際限なく増えないようにするための上限（2026-07-26追加）
+SPOTS_CONTEXT_LIMIT = 40
+
+
+def _build_spots_context(user_lat: float | None = None, user_lng: float | None = None) -> str:
+    """AI相談のプロンプトに埋め込む、実際のSpots/Recommendationsデータのコンパクトな要約を作る。
+
+    discover_spots.pyが「座標などの実在情報はPlaces APIのみを採用しGeminiに生成させない」
+    という方針を取っているのと同じ考え方で、チャットについても実データをそのまま渡すことで
+    Geminiが存在しない釣り場を作り出す（ハルシネーション）のを防ぐ（2026-07-26追加）。
+
+    Args:
+        user_lat (float | None): ユーザーの現在地の緯度（省略可）
+        user_lng (float | None): ユーザーの現在地の経度（省略可）
+
+    Returns:
+        str: 箇条書きテキスト。スポットが1件も無い場合は空文字列
+    """
+    table_s = _get_table(SPOTS_TABLE)
+    table_r = _get_table(RECOMMENDATIONS_TABLE)
+
+    spots = table_s.scan().get("Items", [])
+    recs = {r["spotId"]: r for r in table_r.scan().get("Items", [])}
+
+    rows = []
+    for s in spots:
+        rec = recs.get(s.get("spotId"), {})
+        row: dict[str, Any] = {
+            "name": s.get("name", "名称不明"),
+            "place": s.get("prefecture") or s.get("description", ""),
+            "fishTypes": s.get("fishTypes", []),
+            "score": float(rec.get("score", 0)),
+        }
+        if user_lat is not None and user_lng is not None and "lat" in s and "lng" in s:
+            row["distanceKm"] = round(_haversine_km(user_lat, user_lng, float(s["lat"]), float(s["lng"])), 1)
+        rows.append(row)
+
+    # 現在地が分かる場合は近い順、分からない場合はスコア降順で並べ、上限件数に絞る
+    if user_lat is not None and user_lng is not None:
+        rows.sort(key=lambda r: r.get("distanceKm", float("inf")))
+    else:
+        rows.sort(key=lambda r: r["score"], reverse=True)
+    rows = rows[:SPOTS_CONTEXT_LIMIT]
+
+    if not rows:
+        return ""
+
+    lines = []
+    for r in rows:
+        parts = [f"魚種={','.join(r['fishTypes']) or '不明'}", f"スコア={r['score']:.0f}"]
+        if "distanceKm" in r:
+            parts.append(f"現在地から{r['distanceKm']}km")
+        lines.append(f"- {r['name']}（{r['place']}）: {', '.join(parts)}")
+
+    return "\n".join(lines)
+
+
+def _generate_chat_reply(
+    history: list[dict[str, Any]], message: str, image_url: str | None, spots_context: str = ""
+) -> str:
     """Gemini APIを使ってチャット応答を生成する（テキスト、または画像+テキストのマルチモーダル）。
 
     APIキー未設定時・エラー時はフォールバック文言を返し、Lambdaを継続させる
     （generate_score.py の generate_reason() と同じ思想）。
 
     Args:
-        history     (list[dict[str, Any]]): 直近の会話履歴（{"role", "content"}のリスト）
-        message     (str): 今回のユーザーメッセージ
-        image_url   (str | None): 添付画像の公開URL（省略可）
+        history       (list[dict[str, Any]]): 直近の会話履歴（{"role", "content"}のリスト）
+        message       (str): 今回のユーザーメッセージ
+        image_url     (str | None): 添付画像の公開URL（省略可）
+        spots_context (str): `_build_spots_context()` が生成した実スポットデータの要約
+            （2026-07-26追加。「近くの釣り場は？」等に実データで答えられるようにする）
 
     Returns:
         str: AIの応答テキスト
@@ -684,15 +771,21 @@ def _generate_chat_reply(history: list[dict[str, Any]], message: str, image_url:
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            "gemini-flash-latest",
-            system_instruction=(
-                "あなたは釣行AIアプリに組み込まれた釣りの専門家アシスタントです。"
-                "魚種の判定、エサ・仕掛けの適否、釣果へのコメントなど、釣りに関する質問に"
-                "日本語で親しみやすく、かつ具体的に答えてください。写真が添付されている場合は"
-                "その内容（魚種・エサ・釣り場の様子等）を踏まえて回答してください。"
-            ),
+        system_instruction = (
+            "あなたは釣行AIアプリに組み込まれた釣りの専門家アシスタントです。"
+            "魚種の判定、エサ・仕掛けの適否、釣果へのコメントなど、釣りに関する質問に"
+            "日本語で親しみやすく、かつ具体的に答えてください。写真が添付されている場合は"
+            "その内容（魚種・エサ・釣り場の様子等）を踏まえて回答してください。"
         )
+        if spots_context:
+            system_instruction += (
+                "\n\n以下はこのアプリに実際に登録されている釣り場データです。"
+                "「近くの釣り場は？」「〇〇県のおすすめは？」のような質問には、"
+                "このデータの中から該当するものを具体的に案内してください。"
+                "該当する場所がデータに無い場合は正直にその旨を伝え、存在しない場所を作り出さないでください。\n"
+                f"{spots_context}"
+            )
+        model = genai.GenerativeModel("gemini-flash-latest", system_instruction=system_instruction)
 
         # 直近の履歴をGeminiのchat形式（role: user/model）に変換
         chat_history = [
@@ -729,7 +822,8 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     Args:
         event (dict[str, Any]): API Gateway イベントオブジェクト
-            body (str): JSON文字列。message(必須) / chatId(省略可) / imageUrl(省略可) を含む
+            body (str): JSON文字列。message(必須) / chatId(省略可) / imageUrl(省略可) /
+                lat・lng(省略可、現在地に近い釣り場の案内精度を上げるため。2026-07-26追加) を含む
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
@@ -742,6 +836,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     message = body.get("message")
     chat_id = body.get("chatId")
     image_url = body.get("imageUrl")
+    lat, lng = body.get("lat"), body.get("lng")
 
     if not message:
         return _resp(400, {"error": "message is required"})
@@ -772,7 +867,10 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     messages.append({"role": "user", "content": message, "imageUrl": image_url or "", "createdAt": now})
 
-    reply = _generate_chat_reply(messages[:-1], message, image_url)
+    spots_context = _build_spots_context(
+        float(lat) if lat is not None else None, float(lng) if lng is not None else None
+    )
+    reply = _generate_chat_reply(messages[:-1], message, image_url, spots_context)
 
     reply_at = datetime.now(timezone.utc).isoformat()
     messages.append({"role": "assistant", "content": reply, "createdAt": reply_at})
@@ -874,3 +972,79 @@ def deleteChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     table.delete_item(Key={"userId": _get_user_id(event), "chatId": chat_id})
 
     return _resp(200, {"message": "deleted"})
+
+
+# ─────────────────────────────
+# /me (GET / PUT) — ユーザー自身のプロフィール（表示名）
+# 2026-07-26追加。友人と使うようになりメールアドレスがナビに出るのが微妙という声を受けて、
+# 自分で登録・編集できる表示名を追加した
+# ─────────────────────────────
+DISPLAY_NAME_MAX_LEN = 30
+
+
+@handler_guard
+def getMyProfileHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """GET /me — ログイン中ユーザー自身のプロフィールを返す。
+
+    UsersTable に未登録（=表示名を一度も設定していない）の場合もエラーにはせず、
+    displayName: null で200を返す（フロント側で「未設定」の判定に使う）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]: statusCode=200、body に {"userId": str, "displayName": str|None, "email": str}
+    """
+    user_id = _get_user_id(event)
+    claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims") or {}
+    email = claims.get("email", "")
+
+    table = _get_table(USERS_TABLE)
+    item = table.get_item(Key={"userId": user_id}).get("Item")
+
+    return _resp(200, {
+        "userId": user_id,
+        "displayName": item.get("displayName") if item else None,
+        "email": item.get("email") if item else email,
+    })
+
+
+@handler_guard
+def putMyProfileHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
+    """PUT /me — ログイン中ユーザー自身の表示名を設定・更新する。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト（Cognito認証必須）
+            body (str): JSON文字列。displayName(必須、1〜30文字) を含む
+        context (Any): Lambda コンテキストオブジェクト
+
+    Returns:
+        dict[str, Any]:
+            成功時 200: {"userId": str, "displayName": str}
+            displayName未指定/文字数超過時 400: {"error": "..."}
+    """
+    body = json.loads(event.get("body") or "{}")
+    display_name = (body.get("displayName") or "").strip()
+
+    if not display_name:
+        return _resp(400, {"error": "displayName is required"})
+    if len(display_name) > DISPLAY_NAME_MAX_LEN:
+        return _resp(400, {"error": f"displayName must be {DISPLAY_NAME_MAX_LEN} characters or fewer"})
+
+    user_id = _get_user_id(event)
+    claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims") or {}
+    email = claims.get("email", "")
+    now = datetime.now(timezone.utc).isoformat()
+
+    table = _get_table(USERS_TABLE)
+    table.update_item(
+        Key={"userId": user_id},
+        UpdateExpression=(
+            "SET displayName = :d, email = :e, updatedAt = :u, "
+            "createdAt = if_not_exists(createdAt, :u)"
+        ),
+        ExpressionAttributeValues={":d": display_name, ":e": email, ":u": now},
+    )
+
+    return _resp(200, {"userId": user_id, "displayName": display_name})

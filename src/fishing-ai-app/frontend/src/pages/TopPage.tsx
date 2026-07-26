@@ -7,6 +7,7 @@
  */
 
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useRecommendations } from "../hooks/useRecommendations";
 import { useFavorites } from "../hooks/useFavorites";
 import { RecommendationCard } from "../components/RecommendationCard";
@@ -15,7 +16,7 @@ import { SpotDiscoveryButton } from "../components/SpotDiscoveryButton";
 import { DetailModal } from "../components/DetailModal";
 import { NearbyModal } from "../components/NearbyModal";
 import type { Recommendation } from "../types";
-import { RefreshCw, LocateFixed } from "lucide-react";
+import { RefreshCw, LocateFixed, Store } from "lucide-react";
 
 /**
  * トップページコンポーネント。
@@ -28,6 +29,8 @@ import { RefreshCw, LocateFixed } from "lucide-react";
  * @returns {JSX.Element} トップページ画面
  */
 export const TopPage = () => {
+  const navigate = useNavigate();
+
   /** おすすめデータ・ローディング状態・バッチ実行関数を取得 */
   const { recommendations, loading, batchStatus, error, triggerAiBatch, refetch } = useRecommendations();
 
@@ -70,6 +73,12 @@ export const TopPage = () => {
         <AiBatchButton status={batchStatus} onRun={triggerAiBatch} />
         {/* 新規スポット自動発見: Google Places APIで新しい釣りスポット候補を探索する */}
         <SpotDiscoveryButton />
+        {/* 釣具店を探す（2026-07-26追加）: おすすめ・新スポット探索からは釣具店を除外したので、
+            専用の検索ページ(/tackle-shops)への導線をここに置く */}
+        <button className="ai-batch-btn" onClick={() => navigate("/tackle-shops")}>
+          <Store size={18} />
+          <span>釣具店を探す</span>
+        </button>
       </div>
 
       {/* エラー発生時のエラーバナー */}

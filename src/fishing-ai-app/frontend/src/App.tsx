@@ -14,6 +14,7 @@ import { NavBar } from "./components/NavBar";
 import { TopPage } from "./pages/TopPage";
 import { MapPage } from "./pages/MapPage";
 import { SpotsPage } from "./pages/SpotsPage";
+import { TackleShopsPage } from "./pages/TackleShopsPage";
 import { FavoritesPage } from "./pages/FavoritesPage";
 import { PostsPage } from "./pages/PostsPage";
 import { ChatPage } from "./pages/ChatPage";
@@ -49,6 +50,8 @@ export default function App() {
               <Route path="/map" element={<MapPage />} />
               {/* /spots : スポット一覧リスト */}
               <Route path="/spots" element={<SpotsPage />} />
+              {/* /tackle-shops : 釣具店検索（現在地・キーワード） */}
+              <Route path="/tackle-shops" element={<TackleShopsPage />} />
               {/* /favorites : お気に入りスポット一覧 */}
               <Route path="/favorites" element={<FavoritesPage />} />
               {/* /posts : 釣果投稿一覧・投稿作成 */}

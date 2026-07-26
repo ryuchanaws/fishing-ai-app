@@ -48,10 +48,11 @@ export const useChat = () => {
    *
    * @param {string} text - 送信するメッセージ本文
    * @param {File} [file] - 添付する画像ファイル（任意）
+   * @param {object} [location] - 現在地共有トグルがONの場合の現在地（任意、2026-07-26追加）
    * @returns {Promise<void>}
    */
   const send = useCallback(
-    async (text: string, file?: File) => {
+    async (text: string, file?: File, location?: { lat: number; lng: number }) => {
       setSending(true);
       setError(null);
 
@@ -73,7 +74,13 @@ export const useChat = () => {
       setMessages((prev) => [...prev, { role: "user", content: text, imageUrl, createdAt: now }]);
 
       try {
-        const result = await sendChatMessage({ chatId: chatId ?? undefined, message: text, imageUrl });
+        const result = await sendChatMessage({
+          chatId: chatId ?? undefined,
+          message: text,
+          imageUrl,
+          lat: location?.lat,
+          lng: location?.lng,
+        });
         setChatId(result.chatId);
         setMessages((prev) => [
           ...prev,

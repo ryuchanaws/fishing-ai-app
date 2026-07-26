@@ -54,6 +54,8 @@ th { background:#eef3f8; }
 <tr><td>getChatsHandler【2026-07-25 追加】</td><td>チャット履歴一覧取得</td><td>API Gateway（GET /chats）</td><td>必須</td></tr>
 <tr><td>getChatHandler【2026-07-25 追加】</td><td>特定チャットの全メッセージ取得</td><td>API Gateway（GET /chats/{chatId}）</td><td>必須</td></tr>
 <tr><td>deleteChatHandler【2026-07-25 追加】</td><td>チャットの削除</td><td>API Gateway（DELETE /chats/{chatId}）</td><td>必須</td></tr>
+<tr><td>getMyProfileHandler【2026-07-26 追加】</td><td>自分の表示名（プロフィール）取得</td><td>API Gateway（GET /me）</td><td>必須</td></tr>
+<tr><td>putMyProfileHandler【2026-07-26 追加】</td><td>表示名の設定・更新</td><td>API Gateway（PUT /me）</td><td>必須</td></tr>
 </table>
 
 ---
@@ -64,8 +66,9 @@ th { background:#eef3f8; }
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
 <tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
 <tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch、2026-07-26〜認証必須）</td></tr>
-<tr><td>discoverSpotsBatch【2026-07-24 追加、同日中に役割変更】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加</td><td>adminRunSpotDiscovery経由のみ（自動スケジュールは廃止）</td></tr>
+<tr><td>discoverSpotsBatch【2026-07-24 追加、同日中に役割変更】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加。2026-07-26: 釣具店（Placesのtypesに"store"を含む候補）を除外するようになった</td><td>adminRunSpotDiscovery経由のみ（自動スケジュールは廃止）</td></tr>
 <tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery、2026-07-26〜認証必須）</td></tr>
+<tr><td>searchTackleShops【2026-07-26 追加】</td><td>釣具店をGoogle Places APIで検索して返す（DB書き込みなし・スコアなし）</td><td>API Gateway（POST /tackle-shops/search、認証必須）</td></tr>
 </table>
 
 <div class="box">
@@ -211,11 +214,21 @@ Spots全件取得（重複判定用）
  → Google Places API Text Search
     ・位置指定なし: "釣り 堤防" 等の全国向け複数クエリ
     ・位置指定あり: "釣り" 1クエリ + location/radius(15km)パラメータで近傍に絞り込み
+ → Placesのtypesに"store"を含む候補（釣具店等の小売店）を除外【2026-07-26追加】
  → 既存スポットと緯度経度がhaversine距離300m以内なら重複として除外
  → Gemini APIで地名・住所から想定される魚種を推測（失敗時は汎用デフォルト）
  → 基準地点（位置指定時はその座標、なければ東京駅）からのdistanceKmを算出
  → Spotsテーブルへput_item
 </pre>
+
+<div class="box">
+【2026-07-26追加】"釣り"というクエリだけでは上州屋等の釣具店（タックルショップ）が
+検索結果に混ざり込み、釣り場ではないスポットがおすすめに出てしまう問題があった。
+Google Places APIが返す各結果の <code>types</code> 配列を保持しておき、"store"を含む候補は
+run_discoveryのループ内でスキップするようにした（釣り場自体は通常 point_of_interest/park/
+natural_feature 等で"store"を持たない）。釣具店を探したいニーズ自体には、別途
+tackle_shops.py（searchTackleShops）で応える。
+</div>
 
 <div class="box">
 座標・スポット名などの実在性に関わる情報はGoogle Places APIの結果のみを採用し、
@@ -298,6 +311,61 @@ Geminiを呼ばずに終了する。UsageTableの各アイテムにはTTL（翌�
 DynamoDB側で自動的に古いカウンタが削除されるため、明示的なクリーンアップ処理は不要。
 </div>
 
+<div class="box">
+【2026-07-26追加・実データグラウンディング】「近くの釣り場は？」「〇〇県のおすすめは？」といった
+質問に、AIが実際に登録されているデータで答えられるようにした。discover_spots.pyが
+「座標などの実在情報はPlaces APIのみを採用しGeminiに生成させない」という方針を取っているのと
+同じ考え方で、Function calling等の複雑な仕組みは使わず、<code>_build_spots_context(lat, lng)</code>
+がSpots・Recommendationsをscan→結合→（現在地が分かれば）距離順、（分からなければ）スコア降順で
+上位40件（<code>SPOTS_CONTEXT_LIMIT</code>、トークン量＝コストの際限ない増加を防ぐ上限）を
+テキスト化し、system_instructionに埋め込んで毎回渡す方式にした。「データに無い場所は正直に
+無いと伝え、存在しない場所を作り出さない」という指示も明記しハルシネーションを防いでいる。
+フロント側（ChatInput.tsx）の現在地共有トグルをONにすると、POST /chatのbodyにlat/lngが乗り、
+距離を実際に計算（haversine）した上で近い順の案内ができる（トグルOFFでもプレフェクチャ名等の
+テキストだけでコンテキストは機能する）。
+</div>
+
+<h3>getMyProfileHandler / putMyProfileHandler【2026-07-26追加】</h3>
+
+<div class="box">
+目的：ユーザーが自分の表示名を設定・編集できるようにする。ナビにメールアドレスが出るのが
+微妙という声と、釣果投稿に投稿者名を出したいという要望を受けて追加した。
+</div>
+
+<div class="box">
+UsersTable（userId単一PK）に <code>displayName</code>・<code>email</code>・<code>createdAt</code>・
+<code>updatedAt</code> を保存する。GET /me は未登録でも404にせず <code>displayName: null</code>
+で200を返す（フロント側で「未設定」の判定に使う一次情報として扱いやすくするため）。<br><br>
+投稿一覧（getPostsHandler）は、SpotsTable/FavoritesTableの結合と同じ「NoSQLはJOINできないので
+アプリ側でuserId→表示名の辞書を作って結合する」パターンでUsersTableをscanし、各投稿に
+<code>authorName</code>（未設定ユーザーは"匿名"）を付与する。投稿時点でフリーズさせず、
+表示のたびに最新の表示名を反映する設計（表示名を後から変更すると過去の投稿の表示も更新される）。
+</div>
+
+<h3>tackle_shops.py（searchTackleShops）【2026-07-26追加】</h3>
+
+<div class="box">
+目的：釣具店（タックルショップ）専用の検索機能。従来はdiscover_spots.pyの"釣り"クエリに
+釣具店が混入していたため、EXCLUDED_PLACE_TYPES（"store"）で除外する一方、釣具店を探したい
+ニーズ自体には応える必要があった。
+</div>
+
+<h4>処理</h4>
+<pre>
+POST /tackle-shops/search { lat?, lng?, keyword? }
+ → discover_spots.py の search_places("釣具店 " + keyword, api_key, location_bias) を再利用
+ → lat/lng指定時: 各結果との距離(haversine_km)を計算し近い順にソート
+ → 最大MAX_RESULTS(20)件を { name, lat, lng, address, distanceKm? } の形で返す
+ → DynamoDBへの書き込みは一切行わない（都度検索するだけ、スコアも付与しない）
+</pre>
+
+<div class="box">
+discoverSpotsBatchと同じ <code>../backend/lambda/batch/</code> パッケージに配置し、
+<code>discover_spots.py</code> の <code>search_places</code>/<code>haversine_km</code> を
+そのままimportして再利用している（コードの重複を避けるため）。Places API呼び出しは課金を
+伴うため、POST /tackle-shops/search はCognito認証必須にしている。
+</div>
+
 <h2>5. 非機能要件</h2>
 
 <ul>
@@ -352,6 +420,16 @@ CognitoはOIDC標準の <code>end_session_endpoint</code> をディスカバリ�
 ログアウトは react-oidc-context の標準 <code>signoutRedirect()</code> ではなく、
 Hosted UI独自の <code>/logout</code> エンドポイントへ直接遷移する方式で実装している
 （<code>frontend/src/auth/authConfig.ts</code> の <code>cognitoSignOut()</code>）。
+</div>
+
+<div class="box">
+【2026-07-26変更】Hosted UIのドメイン（<code>UserPoolDomain.Domain</code>）は当初
+アカウントID入り（<code>fishing-ai-app-&lt;AWSアカウントID&gt;.auth...</code>）だったが、
+ログイン画面のURLとして見栄えが良くないという理由で固定の短いプレフィックス
+（<code>ryu-chan-fish.auth...</code>、Cloudflare Workers側のサブドメインとブランドを揃えた）
+に変更した。Domainプロパティの変更はCloudFormationにリソース置き換え（削除→作成）をさせるため、
+UserPool本体・UserPoolClient・登録済みユーザーには影響しない。グローバルユニーク制約があるため
+プレフィックスが衝突した場合は別名に変更する必要がある。
 </div>
 
 <h3>6.3 所有者チェック</h3>

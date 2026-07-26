@@ -201,6 +201,22 @@ git push origin main
      フロント側のチェック（`api/client.ts` の `MAX_UPLOAD_BYTES`）をバイパスしても拒否される
    - 大きすぎるファイルを選んだ場合、送信/アップロード時にエラーメッセージが表示される
 
+10. **表示名（ユーザー名）の設定（2026-07-26追加）**
+    - ログイン後、表示名が未設定の場合はモーダルが自動で開く（「閉じる」で後回しにもできる）
+    - ナビ右上の人物アイコンからいつでも表示名を編集できる
+    - 設定した表示名は釣果投稿の投稿者名として表示される
+
+11. **釣具店を探す（2026-07-26追加）**
+    - おすすめ・新スポット探索からは釣具店を除外している（Google Placesの`types`に`store`を含む候補を除外）
+    - 代わりにナビ「釣具店」または TOP ページの「釣具店を探す」ボタンから専用ページへ行ける
+    - 「現在地から探す」ボタン、または地名・県名でのキーワード検索ができる（スコアは付かない）
+
+12. **AI相談での実データ検索（2026-07-26追加）**
+    - AI相談で「〇〇県のおすすめの釣り場は？」「近くの釣り場を教えて」等と聞くと、
+      実際に登録されているSpots/Recommendationsデータに基づいて回答する
+      （存在しないデータをAIが作り出さないよう、プロンプトに実データのみを渡している）
+    - 入力欄の現在地アイコンをONにすると、実際の距離を計算して「近い順」の案内ができるようになる（任意）
+
 ---
 
 ## 8. テスト（2026-07-25追加）
@@ -307,10 +323,17 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
 **閲覧**（おすすめ・地図・スポット一覧・投稿一覧）はログイン不要のまま。**操作**
 （お気に入り・投稿作成/削除・AI相談・AI分析実行・新スポット探索）はログイン必須。
 
-`template.yaml` に `UserPool` / `UserPoolDomain` を追加した時点で、Hosted UIのドメインは
-`https://fishing-ai-app-<AWSアカウントID>.auth.ap-northeast-1.amazoncognito.com`
-という決まった形式になる（`UserPoolDomain` の `Domain` プロパティにアカウントIDを含めているため）。
-そのため、以下の手順は**デプロイ前でも**進められる。
+`template.yaml` の `UserPoolDomain` に固定のドメインプレフィックス（`ryu-chan-fish`）を指定しているため、
+Hosted UIのドメインは `https://ryu-chan-fish.auth.ap-northeast-1.amazoncognito.com` という
+決まった形式になる。そのため、以下の手順は**デプロイ前でも**進められる。
+
+> **注意（2026-07-26変更）:** ログイン画面のURLとして見栄えが良くないという理由で、
+> 当初のアカウントID入りドメイン（`fishing-ai-app-<AWSアカウントID>.auth...`）から
+> 固定プレフィックス（`ryu-chan-fish.auth...`）に変更した。`UserPoolDomain.Domain` は
+> グローバルユニーク制約があるため、既に取られている場合は `template.yaml` で別名に
+> 変更する必要がある。ドメインを変更するとCloudFormationはリソースを置き換える
+> （UserPool本体・登録済みユーザーには影響しない）。**旧ドメインでGoogle Cloud Consoleに
+> リダイレクトURIを登録済みだった場合は、新ドメインのURIに登録し直すこと。**
 
 ### 9.1 Google Cloud Console で OAuth クライアントを作成
 
@@ -320,9 +343,8 @@ AIによる自動レビュー（Claude API等）は今回は見送った（PRご
    - アプリケーションの種類: **ウェブ アプリケーション**
    - 承認済みのリダイレクト URI に以下を追加:
      ```
-     https://fishing-ai-app-<AWSアカウントID>.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse
+     https://ryu-chan-fish.auth.ap-northeast-1.amazoncognito.com/oauth2/idpresponse
      ```
-     （`<AWSアカウントID>` は `aws sts get-caller-identity --query Account --output text` で確認できる）
 3. 発行された **クライアントID** と **クライアントシークレット** を控える
 
 ### 9.2 SSM にクライアントID/シークレットを登録

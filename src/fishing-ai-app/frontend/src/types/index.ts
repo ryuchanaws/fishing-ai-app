@@ -94,6 +94,38 @@ export interface Post {
   createdAt: string;
   /** 結合済みのスポット情報（API レスポンス時に付与・省略可） */
   spot?: Spot;
+  /** 投稿者の表示名（サーバー側でUsersTableと結合して付与・省略可。未設定ユーザーは"匿名"） */
+  authorName?: string;
+}
+
+/**
+ * ログイン中ユーザー自身のプロフィール（表示名）。
+ * DynamoDB の fishing-users テーブルのレコードに対応する（2026-07-26追加）。
+ */
+export interface Profile {
+  /** ユーザーID（Cognitoのsub、PK） */
+  userId: string;
+  /** 表示名。未設定の場合はnull */
+  displayName: string | null;
+  /** ログインに使ったメールアドレス */
+  email: string;
+}
+
+/**
+ * 釣具店（タックルショップ）の検索結果1件。
+ * DBには保存されない（都度Google Places APIで検索するのみ、2026-07-26追加）。
+ */
+export interface TackleShop {
+  /** 店舗名 */
+  name: string;
+  /** 緯度 */
+  lat: number;
+  /** 経度 */
+  lng: number;
+  /** 住所 */
+  address: string;
+  /** 検索時に現在地を指定した場合の距離（km、省略可） */
+  distanceKm?: number;
 }
 
 /**
