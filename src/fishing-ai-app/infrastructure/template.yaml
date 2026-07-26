@@ -642,6 +642,8 @@ Resources:
             TableName: !Ref SpotsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref RecommendationsTable
+        # run_discovery が新規スポットの写真（Google Places Photos）をアップロードするため（2026-07-26追加）
+        - S3WritePolicy: { BucketName: !Ref UploadsBucket }
       Events:
         # EventBridge スケジュール（毎日 AM6:00 JST = 21:00 UTC に自動実行）
         # cron 形式: cron(分 時 日 月 曜日 年)
@@ -707,6 +709,8 @@ Resources:
             ParameterName: fishing-ai/anthropic-api-key
         - DynamoDBCrudPolicy:
             TableName: !Ref SpotsTable
+        # run_discovery が新規スポットの写真（Google Places Photos）をアップロードするため（2026-07-26追加）
+        - S3WritePolicy: { BucketName: !Ref UploadsBucket }
 
   # POST /admin/run-spot-discovery — フロントの「現在地から探す」ボタンから
   # DiscoverSpotsBatch を起動する（リクエストボディの lat/lng をそのまま転送する）。

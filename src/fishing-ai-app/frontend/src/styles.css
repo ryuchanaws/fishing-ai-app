@@ -1122,11 +1122,34 @@ body  {
 }
 
 .chat-bubble  {
+  position: relative;
   max-width: 80%;
   padding: 10px 14px;
   border-radius: var(--radius);
   font-size: 14px;
   line-height: 1.6;
+}
+
+/* 自分の発言を編集するボタン（吹き出し左上に小さく重ねる。2026-07-26追加） */
+.chat-bubble-edit  {
+  position: absolute;
+  top: -8px;
+  left: -8px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.chat-bubble-edit:hover  {
+  color: var(--accent);
+  border-color: var(--accent);
 }
 
 .chat-bubble.user  {
@@ -1222,6 +1245,28 @@ body  {
   justify-content: center;
   color: #fff;
   cursor: pointer;
+}
+
+/* メッセージ編集中の表示（入力欄の上に出す小さなバナー。2026-07-26追加） */
+.chat-editing-banner  {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0,153,255,0.1);
+  color: var(--accent2);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  margin-bottom: 6px;
+}
+
+.chat-editing-cancel  {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
 }
 
 .chat-history-list  {

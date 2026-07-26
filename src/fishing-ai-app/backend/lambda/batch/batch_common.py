@@ -17,9 +17,11 @@ from typing import Any
 import boto3
 from botocore.exceptions import ClientError
 
-# DynamoDB / SSM クライアントはバッチ系Lambda全体で共有する
+# DynamoDB / SSM / S3 クライアントはバッチ系Lambda全体で共有する
 dynamodb = boto3.resource("dynamodb", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))  # type: ignore[attr-defined]
 ssm = boto3.client("ssm", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
+# discover_spots.py がスポット写真（Google Places Photos）をアップロードするために使用（2026-07-26追加）
+s3 = boto3.client("s3", region_name=os.environ.get("AWS_REGION", "ap-northeast-1"))
 
 # 外部API呼び出しのタイムアウト（秒）。バッチ全体のLambdaタイムアウトを圧迫しないよう短めに設定
 EXTERNAL_API_TIMEOUT_SEC = 5
@@ -58,6 +60,28 @@ def http_get_json(url: str, params: dict[str, str]) -> dict[str, Any]:
     query = "&".join(f"{k}={v}" for k, v in params.items())
     with urllib.request.urlopen(f"{url}?{query}", timeout=EXTERNAL_API_TIMEOUT_SEC) as resp:
         return json.loads(resp.read())
+
+
+def http_get_bytes(url: str, params: dict[str, str]) -> bytes:
+    """指定URLにGETリクエストを送り、レスポンスボディを生バイト列で返す（2026-07-26追加）。
+
+    Google Places Photo API のように画像バイナリを直接返すエンドポイント向け。
+    http_get_json と同じ理由で urllib.request のみで実装している。
+    urlopen はHTTPリダイレクト（Places Photo APIが返す302など）を自動で追跡する。
+
+    Args:
+        url (str): リクエスト先URL（クエリなし）
+        params (dict[str, str]): クエリパラメータ（値は事前にエンコード済みであること）
+
+    Returns:
+        bytes: レスポンスボディ
+
+    Raises:
+        urllib.error.URLError: 通信エラー・タイムアウト時
+    """
+    query = "&".join(f"{k}={v}" for k, v in params.items())
+    with urllib.request.urlopen(f"{url}?{query}", timeout=EXTERNAL_API_TIMEOUT_SEC) as resp:
+        return resp.read()
 
 
 def get_ssm_parameter(name: str) -> str:

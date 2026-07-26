@@ -434,3 +434,91 @@ def test_generate_chat_reply_without_api_key_returns_fallback(dynamodb_tables):
 
     reply = handlers._generate_chat_reply([], "こんにちは", None)
     assert reply == "現在AI機能を利用できません（APIキー未設定）。しばらくしてからお試しください。"
+
+
+def _seed_chat_with_two_turns(handlers) -> None:
+    """editIndexテスト用に、2往復（user/assistant x2）の会話をシードする。"""
+    table = handlers._get_table(os.environ["CHATS_TABLE"])
+    table.put_item(Item={
+        "userId": handlers.DEFAULT_USER_ID,
+        "chatId": "chat-edit-001",
+        "title": "最初の質問",
+        "messages": [
+            {"role": "user", "content": "最初の質問", "imageUrl": "", "createdAt": "2026-01-01T00:00:00+00:00"},
+            {"role": "assistant", "content": "最初の回答", "createdAt": "2026-01-01T00:00:01+00:00"},
+            {"role": "user", "content": "次の質問", "imageUrl": "", "createdAt": "2026-01-01T00:00:02+00:00"},
+            {"role": "assistant", "content": "次の回答", "createdAt": "2026-01-01T00:00:03+00:00"},
+        ],
+        "createdAt": "2026-01-01T00:00:00+00:00",
+        "updatedAt": "2026-01-01T00:00:03+00:00",
+    })
+
+
+def test_post_chat_edit_replaces_message_and_regenerates_reply(dynamodb_tables):
+    """editIndexを指定すると、そのメッセージ以降が破棄され新しい本文で応答が作り直される（2026-07-26追加）。"""
+    handlers = dynamodb_tables
+    _seed_chat_with_two_turns(handlers)
+
+    resp = handlers.postChatHandler(
+        _api_event(body={"chatId": "chat-edit-001", "message": "訂正した質問", "editIndex": 2}), None
+    )
+    assert resp["statusCode"] == 200
+
+    table = handlers._get_table(os.environ["CHATS_TABLE"])
+    item = table.get_item(Key={"userId": handlers.DEFAULT_USER_ID, "chatId": "chat-edit-001"})["Item"]
+    assert len(item["messages"]) == 4
+    assert item["messages"][2] == {
+        "role": "user", "content": "訂正した質問", "imageUrl": "",
+        "createdAt": item["messages"][2]["createdAt"],
+    }
+    assert item["messages"][3]["role"] == "assistant"
+    # 最初のメッセージ(index 0)ではないため、タイトルは変わらない
+    assert item["title"] == "最初の質問"
+
+
+def test_post_chat_edit_first_message_updates_title(dynamodb_tables):
+    """editIndex=0（会話の最初のメッセージ）を編集すると、タイトルも新しい本文から再生成される。"""
+    handlers = dynamodb_tables
+    _seed_chat_with_two_turns(handlers)
+
+    resp = handlers.postChatHandler(
+        _api_event(body={"chatId": "chat-edit-001", "message": "全く別の質問", "editIndex": 0}), None
+    )
+    assert resp["statusCode"] == 200
+
+    table = handlers._get_table(os.environ["CHATS_TABLE"])
+    item = table.get_item(Key={"userId": handlers.DEFAULT_USER_ID, "chatId": "chat-edit-001"})["Item"]
+    assert len(item["messages"]) == 2
+    assert item["title"] == "全く別の質問"
+
+
+def test_post_chat_edit_on_assistant_message_returns_400(dynamodb_tables):
+    """AIの発言（role=assistant）はeditIndexで編集できず400になる。"""
+    handlers = dynamodb_tables
+    _seed_chat_with_two_turns(handlers)
+
+    resp = handlers.postChatHandler(
+        _api_event(body={"chatId": "chat-edit-001", "message": "訂正", "editIndex": 1}), None
+    )
+    assert resp["statusCode"] == 400
+
+
+def test_post_chat_edit_out_of_range_index_returns_400(dynamodb_tables):
+    """存在しないインデックスを指定すると400になる。"""
+    handlers = dynamodb_tables
+    _seed_chat_with_two_turns(handlers)
+
+    resp = handlers.postChatHandler(
+        _api_event(body={"chatId": "chat-edit-001", "message": "訂正", "editIndex": 99}), None
+    )
+    assert resp["statusCode"] == 400
+
+
+def test_post_chat_edit_nonexistent_chat_returns_404(dynamodb_tables):
+    """存在しないchatIdに対してeditIndexを指定すると404になる。"""
+    handlers = dynamodb_tables
+
+    resp = handlers.postChatHandler(
+        _api_event(body={"chatId": "does-not-exist", "message": "訂正", "editIndex": 0}), None
+    )
+    assert resp["statusCode"] == 404

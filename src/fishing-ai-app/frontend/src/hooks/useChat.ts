@@ -30,6 +30,7 @@ import {
  * @returns {ChatSummary[]} history        - チャット履歴一覧
  * @returns {boolean}       historyLoading - 履歴取得中フラグ
  * @returns {Function}      send           - メッセージ送信関数（テキスト + 任意で画像ファイル）
+ * @returns {Function}      editMessage    - 送信済みメッセージを訂正して再送信する（2026-07-26追加）
  * @returns {Function}      startNewChat   - 現在の会話をリセットして新しい会話を開始する
  * @returns {Function}      loadHistory    - チャット履歴一覧を取得する
  * @returns {Function}      openChat       - 履歴から特定の会話を開いて再開する
@@ -101,6 +102,47 @@ export const useChat = () => {
   );
 
   /**
+   * 送信済みのユーザーメッセージを訂正し、そのメッセージ以降を破棄して再送信する
+   * （AIの応答もやり直す。2026-07-26追加）。
+   *
+   * @param {number} index - 編集対象メッセージの messages 配列上のインデックス
+   * @param {string} newText - 訂正後の本文
+   * @returns {Promise<void>}
+   */
+  const editMessage = useCallback(
+    async (index: number, newText: string) => {
+      if (!chatId) return;
+      setSending(true);
+      setError(null);
+
+      const originalImageUrl = messages[index]?.imageUrl;
+      const now = new Date().toISOString();
+      // 編集対象以降を破棄し、訂正後のメッセージを楽観的に表示する
+      setMessages((prev) => [
+        ...prev.slice(0, index),
+        { role: "user", content: newText, imageUrl: originalImageUrl, createdAt: now },
+      ]);
+
+      try {
+        const result = await sendChatMessage({ chatId, message: newText, editIndex: index });
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: result.reply, createdAt: result.updatedAt },
+        ]);
+      } catch (err) {
+        if (axios.isAxiosError(err) && err.response?.status === 429) {
+          setError(err.response.data?.message ?? "本日の利用上限に達しました。明日またお試しください。");
+        } else {
+          setError("AIからの応答取得に失敗しました");
+        }
+      } finally {
+        setSending(false);
+      }
+    },
+    [chatId, messages]
+  );
+
+  /**
    * 現在の会話をリセットして新しい会話を開始する。
    * DBには何も書き込まない（次の send() 呼び出し時に新規チャットとして作成される）。
    */
@@ -169,6 +211,7 @@ export const useChat = () => {
     history,
     historyLoading,
     send,
+    editMessage,
     startNewChat,
     loadHistory,
     openChat,

@@ -50,6 +50,12 @@ def spots_table_for_discovery():
             KeySchema=[{"AttributeName": "spotId", "KeyType": "HASH"}],
             BillingMode="PAY_PER_REQUEST",
         )
+        # スポット写真アップロード先（2026-07-26追加）。put_objectにはバケットの実在が必要
+        s3_client = boto3.client("s3", region_name=os.environ["AWS_REGION"])
+        s3_client.create_bucket(
+            Bucket=os.environ["UPLOADS_BUCKET"],
+            CreateBucketConfiguration={"LocationConstraint": os.environ["AWS_REGION"]},
+        )
         import batch_common
         import discover_spots as ds
 
@@ -86,3 +92,51 @@ def test_run_discovery_excludes_tackle_shops(monkeypatch, spots_table_for_discov
     names = [i["name"] for i in table.scan()["Items"]]
     assert "テスト堤防" in names
     assert "テスト釣具店" not in names
+
+
+def test_fetch_and_store_place_photo_uploads_and_returns_public_url(monkeypatch, spots_table_for_discovery):
+    """写真バイトの取得に成功したらS3へアップロードし、公開URLを返す（2026-07-26追加）。"""
+    ds = spots_table_for_discovery
+    monkeypatch.setattr(ds, "http_get_bytes", lambda url, params: b"fake-jpeg-bytes")
+
+    url = ds.fetch_and_store_place_photo("fake-photo-ref", "spot-abc123", "fake-places-key")
+
+    assert url == f"https://{os.environ['UPLOADS_BUCKET']}.s3.{os.environ['AWS_REGION']}.amazonaws.com/spot-photos/spot-abc123.jpg"
+
+    obj = ds.s3.get_object(Bucket=os.environ["UPLOADS_BUCKET"], Key="spot-photos/spot-abc123.jpg")
+    assert obj["Body"].read() == b"fake-jpeg-bytes"
+
+
+def test_fetch_and_store_place_photo_returns_none_on_error(monkeypatch, spots_table_for_discovery):
+    """Places Photo API呼び出しが失敗した場合はNoneを返し、例外を投げない。"""
+    ds = spots_table_for_discovery
+
+    def raise_error(url, params):
+        raise Exception("boom")
+
+    monkeypatch.setattr(ds, "http_get_bytes", raise_error)
+
+    assert ds.fetch_and_store_place_photo("fake-photo-ref", "spot-abc123", "fake-places-key") is None
+
+
+def test_run_discovery_sets_image_url_when_photo_reference_present(monkeypatch, spots_table_for_discovery):
+    """候補にphoto_referenceがあれば、写真を取得してSpotsのimageUrlに設定する。"""
+    ds = spots_table_for_discovery
+    monkeypatch.setattr(ds, "get_ssm_parameter", lambda name: "fake-places-key")
+    monkeypatch.setattr(ds, "guess_fish_types", lambda *a, **k: ["アジ"])
+    monkeypatch.setattr(ds, "fetch_and_store_place_photo", lambda ref, spot_id, key: "https://example.com/photo.jpg")
+
+    def fake_search_places(query, api_key, location_bias=None):
+        return [{
+            "name": "写真ありスポット", "lat": 35.3, "lng": 139.3,
+            "address": "テスト住所3", "types": ["point_of_interest"], "photo_reference": "ref-xyz",
+        }]
+
+    monkeypatch.setattr(ds, "search_places", fake_search_places)
+
+    result = ds.run_discovery()
+    assert result["addedCount"] == 1
+
+    table = ds.get_table(os.environ["SPOTS_TABLE"])
+    items = table.scan()["Items"]
+    assert items[0]["imageUrl"] == "https://example.com/photo.jpg"

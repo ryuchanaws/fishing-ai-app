@@ -33,9 +33,15 @@ from urllib.parse import quote
 
 import anthropic
 
-from batch_common import http_get_json, get_table, get_ssm_parameter
+from batch_common import http_get_json, http_get_bytes, get_table, get_ssm_parameter, s3
 
 PLACES_TEXT_SEARCH_URL = "https://maps.googleapis.com/maps/api/place/textsearch/json"
+PLACES_PHOTO_URL = "https://maps.googleapis.com/maps/api/place/photo"
+# TOP3ヒーロー写真として使うため、そこそこの解像度を確保しつつ転送量を抑える
+PLACES_PHOTO_MAX_WIDTH = 800
+
+# ユーザー投稿・スポット写真のアップロード先（presignUploadHandler等と共通のバケット）
+UPLOADS_BUCKET = os.environ.get("UPLOADS_BUCKET", "")
 
 # SSMパラメータ名は "/"を含む階層型のため先頭スラッシュ必須（AWSの仕様）
 GOOGLE_PLACES_API_KEY_PARAM = "/fishing-ai/google-places-api-key"
@@ -93,7 +99,7 @@ def search_places(query: str, api_key: str, location_bias: Optional[dict[str, fl
             NEARBY_RADIUS_M 以内の近傍検索として絞り込む
 
     Returns:
-        list[dict[str, Any]]: 検索結果（name / lat / lng / address を含む辞書のリスト）。
+        list[dict[str, Any]]: 検索結果（name / lat / lng / address / photo_reference を含む辞書のリスト）。
             APIエラー時は空リストを返しバッチ全体は継続させる。
     """
     try:
@@ -119,18 +125,55 @@ def search_places(query: str, api_key: str, location_bias: Optional[dict[str, fl
             loc = r.get("geometry", {}).get("location", {})
             if "lat" not in loc or "lng" not in loc:
                 continue
+            photos = r.get("photos") or []
             results.append({
                 "name": r.get("name", "名称不明"),
                 "lat": float(loc["lat"]),
                 "lng": float(loc["lng"]),
                 "address": r.get("formatted_address", ""),
                 "types": r.get("types", []),
+                # スポット写真の自動取得に使う（2026-07-26追加）。候補に写真が無ければNone
+                "photo_reference": photos[0].get("photo_reference") if photos else None,
             })
         return results
 
     except Exception as e:
         print(f"Places API error for '{query}': {e}")
         return []
+
+
+def fetch_and_store_place_photo(photo_reference: str, spot_id: str, places_key: str) -> str | None:
+    """Google Places Photo APIでスポット写真を取得し、S3（UploadsBucket）へアップロードする（2026-07-26追加）。
+
+    TOP3ヒーロー写真・その他一覧のホバープレビューはどちらも Spots.imageUrl の有無だけで
+    表示を切り替える既存仕様（RecommendationCard.tsx）のため、ここで imageUrl を埋めるだけで
+    フロント側の変更なしに両方の見せ方に反映される。
+
+    Args:
+        photo_reference (str): search_places() が返す候補のphoto_reference
+        spot_id         (str): アップロード先キーに使うスポットID
+        places_key      (str): Google Places API キー
+
+    Returns:
+        str | None: アップロードした写真の公開URL。取得・アップロードに失敗した場合はNone
+            （呼び出し側はNoneのままimageUrlを設定せず、バッチ全体は継続させる）
+    """
+    if not UPLOADS_BUCKET:
+        return None
+
+    try:
+        image_bytes = http_get_bytes(PLACES_PHOTO_URL, {
+            "maxwidth": str(PLACES_PHOTO_MAX_WIDTH),
+            "photo_reference": photo_reference,
+            "key": places_key,
+        })
+        key = f"spot-photos/{spot_id}.jpg"
+        s3.put_object(Bucket=UPLOADS_BUCKET, Key=key, Body=image_bytes, ContentType="image/jpeg")
+        return f"https://{UPLOADS_BUCKET}.s3.{os.environ.get('AWS_REGION', 'ap-northeast-1')}.amazonaws.com/{key}"
+
+    except Exception as e:
+        print(f"Place photo fetch/upload error for spot {spot_id}: {e}")
+        return None
 
 
 def guess_fish_types(spot_name: str, address: str, api_key: str) -> list[str]:
@@ -224,6 +267,12 @@ def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str,
         fish_types = guess_fish_types(c["name"], c["address"], anthropic_key)
 
         spot_id = f"spot-{random.getrandbits(32):08x}"
+
+        # スポット写真の自動取得（2026-07-26追加）。候補に写真が無い/取得失敗時はimageUrlを設定しない
+        image_url = None
+        if c.get("photo_reference"):
+            image_url = fetch_and_store_place_photo(c["photo_reference"], spot_id, places_key)
+
         spots_table.put_item(Item={
             "spotId": spot_id,
             "name": c["name"],
@@ -233,6 +282,7 @@ def run_discovery(location_bias: Optional[dict[str, float]] = None) -> dict[str,
             "distanceKm": Decimal(str(round(distance_km, 1))),
             "costYen": Decimal("0"),
             "description": c["address"],
+            "imageUrl": image_url or "",
         })
         # 次の候補との重複判定にも反映させる
         existing_coords.append((c["lat"], c["lng"]))

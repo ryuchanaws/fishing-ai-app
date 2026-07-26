@@ -6,7 +6,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Image as ImageIcon, Camera, X, LocateFixed, Loader2 } from "lucide-react";
+import { Send, Image as ImageIcon, Camera, X, LocateFixed, Loader2, Check } from "lucide-react";
 import { useGeolocation } from "../hooks/useGeolocation";
 
 /**
@@ -21,6 +21,13 @@ interface ChatInputProps {
   onSend: (text: string, file?: File, location?: { lat: number; lng: number }) => void;
   /** 送信中フラグ（true の間は入力・送信ボタンを無効化） */
   sending: boolean;
+  /**
+   * 編集中の元メッセージ本文（2026-07-26追加）。指定されると入力欄に反映され、
+   * 編集モード（画像添付不可・送信ボタンが更新扱い）に切り替わる
+   */
+  editingText?: string;
+  /** 編集モードを終了する関数（editingTextが指定されているときのみ使用） */
+  onCancelEdit?: () => void;
 }
 
 /**
@@ -36,7 +43,7 @@ interface ChatInputProps {
  * @param {ChatInputProps} props
  * @returns {JSX.Element} チャット入力欄
  */
-export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
+export const ChatInput = ({ onSend, sending, editingText, onCancelEdit }: ChatInputProps) => {
   const [text, setText] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -45,6 +52,15 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
 
   const galleryInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  const isEditing = editingText !== undefined;
+
+  /** 編集モードに入った/編集対象が変わったら、入力欄に元の本文を反映する */
+  useEffect(() => {
+    if (editingText !== undefined) {
+      setText(editingText);
+    }
+  }, [editingText]);
 
   /** 現在地取得に初めて成功したら自動でトグルをONにする */
   useEffect(() => {
@@ -86,7 +102,7 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
   };
 
   /**
-   * メッセージを送信し、入力欄をリセットする。
+   * メッセージを送信（または編集中の場合は訂正内容を確定）し、入力欄をリセットする。
    */
   const handleSend = () => {
     if (!text.trim() && !file) return;
@@ -98,6 +114,23 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
 
   return (
     <div className="chat-input-bar">
+      {/* 編集モード表示: メッセージ訂正中であることを示し、キャンセルできるようにする（2026-07-26追加） */}
+      {isEditing && (
+        <div className="chat-editing-banner">
+          <span>メッセージを編集中</span>
+          <button
+            className="chat-editing-cancel"
+            onClick={() => {
+              setText("");
+              onCancelEdit?.();
+            }}
+            aria-label="編集をキャンセル"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       {previewUrl && (
         <div className="chat-image-preview">
           <img src={previewUrl} alt="添付予定の画像" />
@@ -108,12 +141,12 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
       )}
 
       <div className="chat-input-row">
-        {/* アルバムから選択: capture属性なし */}
+        {/* アルバムから選択: capture属性なし。編集モードでは画像添付不可（本文のみ訂正対象） */}
         <button
           className="icon-btn"
           onClick={() => galleryInputRef.current?.click()}
           title="アルバムから選択"
-          disabled={sending}
+          disabled={sending || isEditing}
         >
           <ImageIcon size={18} />
         </button>
@@ -130,7 +163,7 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
           className="icon-btn"
           onClick={() => cameraInputRef.current?.click()}
           title="撮影する"
-          disabled={sending}
+          disabled={sending || isEditing}
         >
           <Camera size={18} />
         </button>
@@ -149,7 +182,7 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
           onClick={handleToggleLocation}
           title={locationEnabled ? "現在地を共有中（タップで解除）" : "現在地を共有して質問する"}
           aria-label="現在地の共有を切り替え"
-          disabled={sending || geo.status === "loading"}
+          disabled={sending || isEditing || geo.status === "loading"}
           style={locationEnabled ? { borderColor: "var(--accent)", color: "var(--accent)" } : undefined}
         >
           {geo.status === "loading" ? <Loader2 size={18} className="spin" /> : <LocateFixed size={18} />}
@@ -165,7 +198,7 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
               handleSend();
             }
           }}
-          placeholder="このエサでいい？ 釣れた魚を判定して、など"
+          placeholder={isEditing ? "メッセージを編集..." : "このエサでいい？ 釣れた魚を判定して、など"}
           disabled={sending}
         />
 
@@ -173,9 +206,10 @@ export const ChatInput = ({ onSend, sending }: ChatInputProps) => {
           className="icon-btn chat-send-btn"
           onClick={handleSend}
           disabled={sending || (!text.trim() && !file)}
-          aria-label="送信"
+          aria-label={isEditing ? "更新" : "送信"}
+          title={isEditing ? "更新" : "送信"}
         >
-          <Send size={18} />
+          {isEditing ? <Check size={18} /> : <Send size={18} />}
         </button>
       </div>
     </div>

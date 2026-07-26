@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useAuth } from "react-oidc-context";
-import { Plus, History, Loader2, LogIn, MessageCircle } from "lucide-react";
+import { Plus, History, Loader2, LogIn, MessageCircle, Pencil } from "lucide-react";
 import { useChat } from "../hooks/useChat";
 import { ChatInput } from "../components/ChatInput";
 import { ChatHistoryPanel } from "../components/ChatHistoryPanel";
@@ -25,15 +25,45 @@ import { ChatHistoryPanel } from "../components/ChatHistoryPanel";
  */
 export const ChatPage = () => {
   const auth = useAuth();
-  const { messages, sending, error, history, historyLoading, send, startNewChat, loadHistory, openChat, removeChat } =
-    useChat();
+  const {
+    messages,
+    sending,
+    error,
+    history,
+    historyLoading,
+    send,
+    editMessage,
+    startNewChat,
+    loadHistory,
+    openChat,
+    removeChat,
+  } = useChat();
   const [showHistory, setShowHistory] = useState(false);
+  /** 編集中のユーザーメッセージのインデックス（null なら編集していない。2026-07-26追加） */
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   /** メッセージが増えるたびに最下部までスクロール */
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, sending]);
+
+  /**
+   * ChatInput からの送信を、編集中かどうかで送信/訂正のどちらかに振り分ける。
+   *
+   * @param {string} text - 入力欄の本文
+   * @param {File} [file] - 添付画像（編集モードでは常にundefined）
+   * @param {object} [location] - 現在地共有トグルがONの場合の現在地
+   */
+  const handleSubmit = (text: string, file?: File, location?: { lat: number; lng: number }) => {
+    if (editingIndex !== null) {
+      const index = editingIndex;
+      setEditingIndex(null);
+      void editMessage(index, text);
+    } else {
+      send(text, file, location);
+    }
+  };
 
   /**
    * 履歴パネルを開き、履歴一覧を取得する。
@@ -108,6 +138,18 @@ export const ChatPage = () => {
           <div key={i} className={`chat-bubble ${m.role}`}>
             {m.imageUrl && <img className="chat-bubble-image" src={m.imageUrl} alt="添付画像" />}
             <p className="chat-bubble-text">{m.content}</p>
+            {/* 自分の発言のみ編集可能（送信済みメッセージを訂正して再送信する。2026-07-26追加） */}
+            {m.role === "user" && (
+              <button
+                className="chat-bubble-edit"
+                onClick={() => setEditingIndex(i)}
+                disabled={sending}
+                aria-label="メッセージを編集"
+                title="編集"
+              >
+                <Pencil size={12} />
+              </button>
+            )}
           </div>
         ))}
 
@@ -121,7 +163,12 @@ export const ChatPage = () => {
         <div ref={bottomRef} />
       </div>
 
-      <ChatInput onSend={send} sending={sending} />
+      <ChatInput
+        onSend={handleSubmit}
+        sending={sending}
+        editingText={editingIndex !== null ? messages[editingIndex]?.content : undefined}
+        onCancelEdit={() => setEditingIndex(null)}
+      />
 
       {showHistory && (
         <ChatHistoryPanel

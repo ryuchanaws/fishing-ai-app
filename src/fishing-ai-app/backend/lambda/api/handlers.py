@@ -892,22 +892,28 @@ def _generate_chat_reply(
 # ─────────────────────────────
 @handler_guard
 def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
-    """POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記）。
+    """POST /chat — AIチャットにメッセージを送信する（新規 or 既存チャットへの追記、または既存メッセージの編集）。
 
     chatId が未指定の場合は新規チャットを作成する。写真が添付されている場合は
     Claudeへマルチモーダル入力として渡す。応答は同期的に返す
     （バッチ処理と違い、チャットのUXにはポーリングが合わないため）。
 
+    editIndex が指定された場合は「送信済みメッセージの訂正・再送信」として扱う（2026-07-26追加）。
+    対象メッセージ（ユーザー発言のみ編集可）以降の会話を切り詰め、新しい本文でAI応答を生成し直す。
+
     Args:
         event (dict[str, Any]): API Gateway イベントオブジェクト
             body (str): JSON文字列。message(必須) / chatId(省略可) / imageUrl(省略可) /
-                lat・lng(省略可、現在地に近い釣り場の案内精度を上げるため。2026-07-26追加) を含む
+                lat・lng(省略可、現在地に近い釣り場の案内精度を上げるため。2026-07-26追加) /
+                editIndex(省略可、既存メッセージを編集して再送信する場合に指定) を含む
         context (Any): Lambda コンテキストオブジェクト
 
     Returns:
         dict[str, Any]:
             成功時 200: {"chatId": str, "reply": str, "updatedAt": str}
             message 未指定時 400: {"error": "..."}
+            editIndex が不正な場合 400: {"error": "..."}
+            チャットが存在しない場合 404: {"error": "..."}
             本日の利用上限に達している場合 429: {"error": "rate_limited", "message": "..."}
     """
     body = json.loads(event.get("body") or "{}")
@@ -915,6 +921,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     chat_id = body.get("chatId")
     image_url = body.get("imageUrl")
     lat, lng = body.get("lat"), body.get("lng")
+    edit_index = body.get("editIndex")
 
     if not message:
         return _resp(400, {"error": "message is required"})
@@ -922,7 +929,7 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
     user_id = _get_user_id(event)
 
     # Claude呼び出しコストを抑えるための1日あたりレート制限（2026-07-26追加）。
-    # 上限超過時はClaudeを呼ばずに即座に返す
+    # 上限超過時はClaudeを呼ばずに即座に返す（編集による再送信も同様にカウントする）
     if not _check_and_increment_daily_usage(user_id, "chat", DAILY_CHAT_LIMIT):
         return _resp(429, {
             "error": "rate_limited",
@@ -934,9 +941,20 @@ def postChatHandler(event: dict[str, Any], context: Any) -> dict[str, Any]:
 
     if chat_id:
         existing = table.get_item(Key={"userId": user_id, "chatId": chat_id}).get("Item")
+        if edit_index is not None and not existing:
+            return _resp(404, {"error": "chat not found"})
         messages: list[dict[str, Any]] = existing["messages"] if existing else []
         title = existing["title"] if existing else message[:30]
         created_at = existing["createdAt"] if existing else now
+
+        if edit_index is not None:
+            if not (0 <= edit_index < len(messages)) or messages[edit_index].get("role") != "user":
+                return _resp(400, {"error": "invalid editIndex"})
+            # 編集は本文のみが対象。元メッセージに添付されていた画像はそのまま維持する
+            image_url = messages[edit_index].get("imageUrl") or None
+            messages = messages[:edit_index]
+            if edit_index == 0:
+                title = message[:30]
     else:
         chat_id = str(uuid.uuid4())
         messages = []

@@ -277,6 +277,8 @@ export const uploadImageToS3 = async (
  * @param {string} [input.imageUrl] - 添付画像のURL（uploadImageToS3完了後のpublicUrlを渡す）
  * @param {number} [input.lat] - 現在地の緯度（省略可。「近くの釣り場」の案内精度を上げる。2026-07-26追加）
  * @param {number} [input.lng] - 現在地の経度（省略可）
+ * @param {number} [input.editIndex] - 送信済みメッセージを訂正して再送信する場合、対象のインデックス
+ *   （省略可。指定するとバックエンドがそのメッセージ以降を切り詰めてAI応答を作り直す。2026-07-26追加）
  * @returns {Promise<{chatId: string; reply: string; updatedAt: string}>} AIの応答
  */
 export const sendChatMessage = async (input: {
@@ -285,6 +287,7 @@ export const sendChatMessage = async (input: {
   imageUrl?: string;
   lat?: number;
   lng?: number;
+  editIndex?: number;
 }): Promise<{ chatId: string; reply: string; updatedAt: string }> => {
   const { data } = await api.post("/chat", input, { timeout: 28000 });
   return data;
