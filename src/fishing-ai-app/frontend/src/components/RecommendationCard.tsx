@@ -6,6 +6,7 @@
  * ナビボタンとお気に入りトグルボタンを提供する。
  */
 
+import { useState } from "react";
 import { Heart, Navigation2, Fish } from "lucide-react";
 import type { Recommendation } from "../types";
 import { getScoreColor, getScoreLabel, formatScore, getWeatherIcon, getTideIcon } from "../utils/score";
@@ -51,6 +52,10 @@ export const RecommendationCard = ({
   /** スコアに応じたアクセントカラー */
   const scoreColor = getScoreColor(rec.score);
 
+  /** 写真の読み込みに失敗したかどうか（S3オブジェクト未存在・権限エラー等）。
+   * 失敗時は壊れた画像アイコンを出さず、写真無し扱いのレイアウトにフォールバックする（2026-07-26追加） */
+  const [imgFailed, setImgFailed] = useState(false);
+
   /**
    * Google Maps のルート案内を新しいタブで開く。
    * カード全体のクリックイベントが伝播しないよう stopPropagation する。
@@ -65,9 +70,16 @@ export const RecommendationCard = ({
 
   return (
     <div className="rec-card" onClick={() => onClick(rec)} role="button" tabIndex={0}>
-      {/* TOP3ヒーロー写真: rankが渡されており、かつスポット写真が登録されている場合のみ表示 */}
-      {rank && rec.spot?.imageUrl && (
-        <img className="rec-card-photo" src={rec.spot.imageUrl} alt={rec.spot?.name ?? ""} loading="lazy" />
+      {/* TOP3ヒーロー写真: rankが渡されており、かつスポット写真が登録されている場合のみ表示。
+          読み込みに失敗した場合はimgFailedを立てて非表示にフォールバックする */}
+      {rank && rec.spot?.imageUrl && !imgFailed && (
+        <img
+          className="rec-card-photo"
+          src={rec.spot.imageUrl}
+          alt={rec.spot?.name ?? ""}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+        />
       )}
 
       {/* ランクバッジ: rank が渡されたときのみ表示（1位: 金・2位: 銀・3位: 銅） */}

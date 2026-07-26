@@ -214,10 +214,15 @@ body  {
 }
 
 /* ===== AI BATCH BUTTON ===== */
-/* 「AI分析を実行」ボタンのラッパー。SpotDiscoveryButton と横並びに配置する */
+/* 「AI分析を実行」ボタンのラッパー。SpotDiscoveryButton と横並びに配置する。
+   align-items省略時のデフォルト(stretch)だと、AI分析ボタンの下に結果メッセージが
+   出て高さが伸びたときに、隣の「釣具店を探す」ボタン（メッセージを持たない）まで
+   その高さに引き伸ばされてしまう（2026-07-26修正: flex-startにして各ボタンが
+   自分のコンテンツの高さを保つようにした） */
 .ai-batch-section  {
   display: flex;
   flex-wrap: wrap;
+  align-items: flex-start;
   gap: 16px;
   margin-bottom: 28px;
 }
