@@ -31,6 +31,8 @@ interface RecommendationCardProps {
  * おすすめスポットカードコンポーネント。
  *
  * - rank が渡されたときのみランクバッジ（#1〜#3）を表示する
+ * - rank が渡されており、かつスポット写真がある場合はカード上部にヒーロー写真を表示する
+ *   （TOP3のみ。その他一覧・お気に入り一覧では従来通りホバー/長押しプレビューのみ。2026-07-26追加）
  * - スコアに応じた色でスコアサークルのボーダーを表示する
  * - ナビボタンクリックで Google Maps のルート案内を新しいタブで開く
  * - お気に入りボタンは登録状態に応じてハートの塗りつぶしを切り替える
@@ -63,6 +65,11 @@ export const RecommendationCard = ({
 
   return (
     <div className="rec-card" onClick={() => onClick(rec)} role="button" tabIndex={0}>
+      {/* TOP3ヒーロー写真: rankが渡されており、かつスポット写真が登録されている場合のみ表示 */}
+      {rank && rec.spot?.imageUrl && (
+        <img className="rec-card-photo" src={rec.spot.imageUrl} alt={rec.spot?.name ?? ""} loading="lazy" />
+      )}
+
       {/* ランクバッジ: rank が渡されたときのみ表示（1位: 金・2位: 銀・3位: 銅） */}
       {rank && (
         <div className="rank-badge" style={{ background: rank === 1 ? "#f5a623" : rank === 2 ? "#aaa" : "#cd7f32" }}>

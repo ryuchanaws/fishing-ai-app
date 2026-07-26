@@ -70,6 +70,48 @@ describe("RecommendationCard", () => {
     expect(handleClick).toHaveBeenCalledWith(baseRecommendation);
   });
 
+  it("shows the hero photo only when rank is set and the spot has an image", () => {
+    const withImage: Recommendation = {
+      ...baseRecommendation,
+      spot: { ...baseRecommendation.spot!, imageUrl: "https://example.com/photo.jpg" },
+    };
+
+    const { rerender } = render(
+      <RecommendationCard
+        recommendation={withImage}
+        isFavorite={false}
+        onToggleFavorite={vi.fn()}
+        onClick={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("img", { name: "テストスポット" })).not.toBeInTheDocument();
+
+    rerender(
+      <RecommendationCard
+        recommendation={withImage}
+        rank={1}
+        isFavorite={false}
+        onToggleFavorite={vi.fn()}
+        onClick={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("img", { name: "テストスポット" })).toHaveAttribute(
+      "src",
+      "https://example.com/photo.jpg"
+    );
+
+    rerender(
+      <RecommendationCard
+        recommendation={baseRecommendation}
+        rank={1}
+        isFavorite={false}
+        onToggleFavorite={vi.fn()}
+        onClick={vi.fn()}
+      />
+    );
+    expect(screen.queryByRole("img", { name: "テストスポット" })).not.toBeInTheDocument();
+  });
+
   it("calls onToggleFavorite with the spotId when the favorite button is clicked", () => {
     const handleToggle = vi.fn();
     render(

@@ -371,6 +371,17 @@ body  {
   box-shadow: var(--shadow);
 }
 
+/* TOP3カードのヒーロー写真。card paddingの外側まで四辺ではなく上・左右にだけ
+   はみ出させて上端いっぱいに表示する（2026-07-26追加） */
+.rec-card-photo  {
+  display: block;
+  width: calc(100% + 36px);
+  height: 140px;
+  margin: -18px -18px 14px -18px;
+  object-fit: cover;
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
 /* ランクバッジ: カード左上に絶対配置（#1〜#3） */
 .rank-badge  {
 
