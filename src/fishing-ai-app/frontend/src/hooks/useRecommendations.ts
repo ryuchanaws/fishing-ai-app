@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import axios from "axios";
 import { useAuth } from "react-oidc-context";
 import type { Recommendation, BatchStatus } from "../types";
 import { getRecommendations, runAiBatch } from "../api/client";
@@ -85,8 +86,13 @@ export const useRecommendations = () => {
     setBatchStatus({ status: "running", startedAt });
     try {
       await runAiBatch();
-    } catch {
-      setBatchStatus({ status: "failed", message: "AI分析の起動に失敗しました" });
+    } catch (err) {
+      if (axios.isAxiosError(err) && err.response?.status === 429) {
+        // 1日あたりの実行回数上限（コスト保護、2026-07-26追加）
+        setBatchStatus({ status: "failed", message: err.response.data?.message ?? "本日の利用上限に達しました" });
+      } else {
+        setBatchStatus({ status: "failed", message: "AI分析の起動に失敗しました" });
+      }
       return;
     }
 

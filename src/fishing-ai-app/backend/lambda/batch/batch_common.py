@@ -11,6 +11,7 @@ generate_score.py を import すると循環importになるため、共通部分
 import os
 import json
 import urllib.request
+from datetime import datetime, timezone
 from typing import Any
 
 import boto3
@@ -74,3 +75,52 @@ def get_ssm_parameter(name: str) -> str:
     except ClientError as e:
         print(f"SSM get_parameter error ({name}): {e}")
         return ""
+
+
+# 2026-07-26追加: AI分析実行・新スポット探索・釣具店検索はPlaces/Gemini APIの呼び出しを伴い
+# 課金対象のため、handlers.py の _get_user_id / _check_and_increment_daily_usage と同じ仕組みを
+# バッチ系Lambda（admin_trigger.py・tackle_shops.py）向けにも用意する。
+# api/ と batch/ はSAMの別デプロイパッケージのため、コードは共有できずここに複製している
+# （discover_spots.py の haversine_km 等、既存の重複パターンを踏襲）。
+DEFAULT_USER_ID = "user-001"
+
+
+def get_user_id(event: dict[str, Any]) -> str:
+    """Cognitoオーソライザーが付与したクレームから実ユーザーIDを取得する（handlers.pyと同じロジック）。
+
+    Args:
+        event (dict[str, Any]): API Gateway イベントオブジェクト
+
+    Returns:
+        str: Cognitoのsub（ユーザー識別子）。取得できない場合は DEFAULT_USER_ID
+    """
+    claims = ((event.get("requestContext") or {}).get("authorizer") or {}).get("claims") or {}
+    return claims.get("sub", DEFAULT_USER_ID)
+
+
+def check_and_increment_daily_usage(user_id: str, action: str, limit: int) -> bool:
+    """指定ユーザー・アクションの当日の利用回数をアトミックに加算し、上限内かどうかを返す
+    （handlers.py の _check_and_increment_daily_usage と同じロジック）。
+
+    Args:
+        user_id (str): 対象ユーザーID（Cognitoのsub）
+        action  (str): アクション種別（例: "ai-batch"・"spot-discovery"・"tackle-shop-search"）
+        limit   (int): 1日あたりの上限回数
+
+    Returns:
+        bool: 上限内（呼び出しを継続してよい）なら True、上限超過なら False
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_key = f"{action}#{today}"
+    expires_at = int(datetime.now(timezone.utc).timestamp()) + 2 * 24 * 60 * 60
+
+    table = get_table(os.environ.get("USAGE_TABLE", "fishing-usage"))
+    result = table.update_item(
+        Key={"userId": user_id, "dateKey": date_key},
+        UpdateExpression="ADD #c :inc SET expiresAt = if_not_exists(expiresAt, :exp)",
+        ExpressionAttributeNames={"#c": "count"},
+        ExpressionAttributeValues={":inc": 1, ":exp": expires_at},
+        ReturnValues="UPDATED_NEW",
+    )
+    current_count = int(result["Attributes"]["count"])
+    return current_count <= limit

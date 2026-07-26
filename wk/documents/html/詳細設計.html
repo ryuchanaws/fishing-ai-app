@@ -45,6 +45,7 @@ th { background:#eef3f8; }
 <tr><td>getSpotsHandler</td><td>スポット一覧</td><td>API Gateway</td><td>不要</td></tr>
 <tr><td>getPostsHandler</td><td>釣果取得</td><td>API Gateway</td><td>不要</td></tr>
 <tr><td>createPostHandler【2026-07-24 追加】</td><td>釣果投稿の作成</td><td>API Gateway（POST /posts）</td><td>必須</td></tr>
+<tr><td>updatePostHandler【2026-07-26 追加】</td><td>釣果投稿の編集（本文・釣れた魚種・写真）</td><td>API Gateway（PUT /posts/{postId}）</td><td>必須</td></tr>
 <tr><td>deletePostHandler【2026-07-25 追加】</td><td>釣果投稿の削除</td><td>API Gateway（DELETE /posts/{postId}）</td><td>必須</td></tr>
 <tr><td>createFavoriteHandler</td><td>お気に入り登録</td><td>API Gateway</td><td>必須</td></tr>
 <tr><td>getFavoritesHandler</td><td>お気に入り取得</td><td>API Gateway</td><td>必須</td></tr>
@@ -65,9 +66,9 @@ th { background:#eef3f8; }
 <table>
 <tr><th>関数名</th><th>役割</th><th>トリガー</th></tr>
 <tr><td>generateSpotScoreBatch</td><td>天気・潮汐取得＋AIスコア生成（実装では1関数に統合）</td><td>EventBridge（毎日AM6:00 JST）／adminRunAiBatch経由</td></tr>
-<tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー</td><td>API Gateway（POST /admin/run-ai-batch、2026-07-26〜認証必須）</td></tr>
+<tr><td>adminRunAiBatch</td><td>フロントの「AI分析を実行」ボタンからgenerateSpotScoreBatchを起動する薄いラッパー。2026-07-26: 1日3回のレート制限を追加（コスト保護）</td><td>API Gateway（POST /admin/run-ai-batch、2026-07-26〜認証必須）</td></tr>
 <tr><td>discoverSpotsBatch【2026-07-24 追加、同日中に役割変更】</td><td>Google Places APIで新規釣りスポット候補を探索しSpotsテーブルへ追加。2026-07-26: 釣具店（Placesのtypesに"store"を含む候補）を除外するようになった</td><td>adminRunSpotDiscovery経由のみ（自動スケジュールは廃止）</td></tr>
-<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）</td><td>API Gateway（POST /admin/run-spot-discovery、2026-07-26〜認証必須）</td></tr>
+<tr><td>adminRunSpotDiscovery【2026-07-24 追加】</td><td>フロントの「現在地から新スポットを探す」ボタンからdiscoverSpotsBatchを起動する薄いラッパー（adminRunAiBatchと同一コードをBATCH_FUNCTION_NAME環境変数の差し替えで再利用）。2026-07-26: 1日10回のレート制限を追加</td><td>API Gateway（POST /admin/run-spot-discovery、2026-07-26〜認証必須）</td></tr>
 <tr><td>searchTackleShops【2026-07-26 追加】</td><td>釣具店をGoogle Places APIで検索して返す（DB書き込みなし・スコアなし）</td><td>API Gateway（POST /tackle-shops/search、認証必須）</td></tr>
 </table>
 
@@ -323,6 +324,43 @@ DynamoDB側で自動的に古いカウンタが削除されるため、明示的
 フロント側（ChatInput.tsx）の現在地共有トグルをONにすると、POST /chatのbodyにlat/lngが乗り、
 距離を実際に計算（haversine）した上で近い順の案内ができる（トグルOFFでもプレフェクチャ名等の
 テキストだけでコンテキストは機能する）。
+</div>
+
+<h3>updatePostHandler【2026-07-26追加】</h3>
+
+<div class="box">
+目的：釣果投稿の編集（本文・釣れた魚種・写真）。所有者チェックはdeletePostHandlerと全く同じ
+方式（PostsTableはpostId単一PKで所有者情報がキーに無いため、更新前にget_itemして
+投稿のuserIdとリクエスト元のuserIdを比較し、一致しなければ403を返す）。<br><br>
+リクエストボディに含まれるフィールドのみを更新する（部分更新）。<code>content</code>が
+空文字の場合は400を返す。投稿先スポット（spotId）はAPI側では変更を受け付けない
+（フロントのPostForm.tsxも編集モードではスポット選択欄を無効化している）。
+更新のたびに<code>updatedAt</code>を記録し、フロント側で「（編集済み）」の表示に使う。
+</div>
+
+<h3>コスト保護レート制限（admin_trigger.py / tackle_shops.py）【2026-07-26追加】</h3>
+
+<div class="box">
+目的：AI分析実行・現在地から新スポット探索・釣具店検索はいずれもPlaces/Gemini APIの
+呼び出しを伴い課金対象のため、AI相談（postChatHandlerのDAILY_CHAT_LIMIT）と同じ思想で
+1ユーザー1日あたりの上限を設けた。api/とbatch/はSAMの別デプロイパッケージのため
+handlers.pyのロジックは共有できず、<code>batch_common.py</code>に
+<code>get_user_id</code>・<code>check_and_increment_daily_usage</code>として複製した
+（discover_spots.pyのhaversine_km等、既存の重複パターンを踏襲）。
+</div>
+
+<table>
+<tr><th>関数</th><th>レート制限アクション名</th><th>1日の上限</th><th>設定方法</th></tr>
+<tr><td>adminRunAiBatch</td><td>ai-batch</td><td>3回</td><td>template.yamlのRATE_LIMIT_ACTION/RATE_LIMIT_DAILY環境変数</td></tr>
+<tr><td>adminRunSpotDiscovery</td><td>spot-discovery</td><td>10回</td><td>同上（同じadmin_trigger.pyを異なる環境変数で再利用）</td></tr>
+<tr><td>searchTackleShops</td><td>tackle-shop-search</td><td>20回</td><td>tackle_shops.pyのDAILY_SEARCH_LIMIT定数</td></tr>
+</table>
+
+<div class="box">
+上限に達している場合はバッチ起動・Places API検索を一切行わずに429
+（<code>{"status"/"error": "rate_limited", "message": "..."}</code>）を返す。
+カウンタはUsageTable（userId + dateKey）にADD式でアトミック加算し、TTLで翌々日ごろ
+自動的に古いカウンタが削除される（postChatHandlerと全く同じ仕組み）。
 </div>
 
 <h3>getMyProfileHandler / putMyProfileHandler【2026-07-26追加】</h3>
