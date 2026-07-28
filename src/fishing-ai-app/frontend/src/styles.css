@@ -1533,7 +1533,62 @@ body  {
 
   /* ラベルが無くなる分、アイコンだけのボタンとして扱いやすいようパディングを調整 */
   .nav-link  {
-    padding: 8px 10px;
+    padding: 8px 8px;
+  }
+
+  .navbar  {
+    padding: 0 10px;
+  }
+
+  /* ロゴ・ログイン状態は常に見える位置を確保し、リンク数が多くて幅が足りない場合は
+     中央のリンク一覧だけを横スクロールさせる（2026-07-26修正: リンクが8個に増え、
+     折り返し・スクロールのどちらも無いとログインアイコンが右端で見切れていたため） */
+  .nav-brand,
+  .nav-auth  {
+    flex-shrink: 0;
+  }
+
+  .nav-links  {
+    overflow-x: auto;
+    min-width: 0;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .nav-links::-webkit-scrollbar  {
+    display: none;
+  }
+
+  /* AI分析・新スポット探索・釣具店の3ボタン（2026-07-26調整）。
+     デスクトップ幅のまま横並びで折り返すと窮屈だったため、モバイルでは
+     縦積み・フル幅にして本文以外の余白を減らし、影も少し抑えて馴染ませる。
+     .ai-batch-section を column にした状態での align-items:stretch は
+     横幅方向のみに効くため、ボタン高さが引き伸ばされる問題（2026-07-26の
+     flex-start修正）は再発しない */
+  .ai-batch-section  {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .ai-batch-wrapper  {
+    width: 100%;
+  }
+
+  .ai-batch-btn  {
+    width: 100%;
+    justify-content: center;
+    padding: 11px 16px;
+    font-size: 14px;
+    box-shadow: 0 2px 10px rgba(0,200,150,0.25);
+  }
+
+  .ai-batch-btn:hover  {
+    box-shadow: 0 3px 14px rgba(0,200,150,0.35);
+  }
+
+  .batch-status  {
+    max-width: 100%;
   }
 
   /* 狭い画面ではメールアドレス・ログインラベルも隠してアイコンのみにする */
